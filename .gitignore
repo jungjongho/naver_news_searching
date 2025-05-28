@@ -1,0 +1,57 @@
+# Python 관련
+
+# 가상 환경
+venv/
+env/
+ENV/
+.env
+venv.bak/
+env.bak/
+
+# 로그 파일
+*.log
+logs/
+
+# 스크래핑 결과 파일
+backend/results/
+results/
+*.csv
+*.xlsx
+*.xls
+
+# node
+node_modules/
+
+
+# 빌드 파일
+frontend/build/
+frontend/dist/
+
+# 임시 파일
+.tmp/
+.temp/
+temp/
+
+# 캐시 디렉토리
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 개인 설정 파일 (단, 예제 파일은 제외)
+!.env.example
+
+# 디버그 파일
+*.debug
+
+# 대용량 파일
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.mp4
+*.mov
+*.avi
+
+# 기타 불필요한 파일
+.ipynb_checkpoints/
