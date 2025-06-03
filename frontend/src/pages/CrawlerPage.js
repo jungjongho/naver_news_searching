@@ -11,7 +11,6 @@ import {
   Stack,
   Card,
   CardContent,
-  Slider,
   FormControl,
   InputLabel,
   Select,
@@ -135,6 +134,31 @@ const CrawlerPage = () => {
     }
   };
 
+  // 최대 뉴스 수 변경 핸들러
+  const handleMaxNewsChange = (e) => {
+    const value = e.target.value;
+    
+    // 빈 값일 때는 그대로 두기 (사용자가 입력 중일 수 있음)
+    if (value === '') {
+      setMaxNewsPerKeyword('');
+      return;
+    }
+    
+    const numValue = parseInt(value);
+    
+    // 유효한 숫자이고 1 이상 1000 이하일 때만 업데이트
+    if (!isNaN(numValue) && numValue >= 1 && numValue <= 1000) {
+      setMaxNewsPerKeyword(numValue);
+    }
+  };
+
+  // blur 이벤트에서 최소값 보장
+  const handleMaxNewsBlur = () => {
+    if (maxNewsPerKeyword === '' || maxNewsPerKeyword < 1) {
+      setMaxNewsPerKeyword(1);
+    }
+  };
+
   // 뉴스 크롤링 실행
   const handleCrawl = async () => {
     if (keywords.length === 0) {
@@ -146,14 +170,17 @@ const CrawlerPage = () => {
       return;
     }
     
+    // 최대 뉴스 수가 유효하지 않으면 기본값으로 설정
+    const finalMaxNews = maxNewsPerKeyword === '' || maxNewsPerKeyword < 1 ? 100 : maxNewsPerKeyword;
+    
     // 설정 저장
     storage.set('lastKeywords', keywords);
-    storage.set('lastMaxNews', maxNewsPerKeyword);
+    storage.set('lastMaxNews', finalMaxNews);
     
     setLoading(true);
     
     try {
-      const result = await crawlerService.crawlNews(keywords, maxNewsPerKeyword);
+      const result = await crawlerService.crawlNews(keywords, finalMaxNews);
       
       if (result.success) {
         // 다운로드 폴더 저장 여부에 따라 메시지 다르게 표시
@@ -195,6 +222,9 @@ const CrawlerPage = () => {
       setLoading(false);
     }
   };
+
+  // 표시할 최대 뉴스 수 계산 (빈 값이거나 잘못된 값일 때 기본값 사용)
+  const displayMaxNews = maxNewsPerKeyword === '' || maxNewsPerKeyword < 1 ? 100 : maxNewsPerKeyword;
 
   return (
     <Box>
@@ -319,21 +349,26 @@ const CrawlerPage = () => {
             
             <Box sx={{ mb: 4 }}>
               <Typography variant="subtitle1" gutterBottom>
-                키워드당 최대 뉴스 수: {maxNewsPerKeyword}
+                키워드당 최대 뉴스 수
               </Typography>
-              <Slider
+              <TextField
+                fullWidth
+                variant="outlined"
+                type="number"
                 value={maxNewsPerKeyword}
-                onChange={(_, newValue) => setMaxNewsPerKeyword(newValue)}
-                min={100}
-                max={1000}
-                step={100}
-                marks={[
-                  { value: 100, label: '100' },
-                  { value: 500, label: '500' },
-                  { value: 1000, label: '1000' },
-                ]}
-                valueLabelDisplay="auto"
+                onChange={handleMaxNewsChange}
+                onBlur={handleMaxNewsBlur}
+                inputProps={{
+                  min: 1,
+                  max: 1000,
+                  step: 1
+                }}
+                helperText="1부터 1000까지 입력 가능합니다. (네이버 API 제한)"
+                sx={{ mb: 2 }}
               />
+              <Typography variant="body2" color="text.secondary">
+                권장값: 100-300개 (너무 많으면 처리 시간이 오래 걸릴 수 있습니다)
+              </Typography>
             </Box>
             
             <Divider sx={{ mb: 3 }} />
@@ -350,7 +385,7 @@ const CrawlerPage = () => {
                 뉴스 수집 시작
               </Button>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                총 {keywords.length}개 키워드, 최대 {keywords.length * maxNewsPerKeyword}개의 뉴스 기사를 수집합니다.
+                총 {keywords.length}개 키워드, 최대 {keywords.length * displayMaxNews}개의 뉴스 기사를 수집합니다.
               </Typography>
             </Box>
           </Paper>
@@ -413,7 +448,7 @@ const CrawlerPage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="최대 뉴스 수"
-                    secondary="키워드당 최대 뉴스 수를 조절하여 검색 결과 양을 제한할 수 있습니다."
+                    secondary="키워드당 최대 뉴스 수를 자유롭게 입력할 수 있습니다. 1부터 1000까지 가능합니다."
                   />
                 </ListItem>
                 <ListItem>

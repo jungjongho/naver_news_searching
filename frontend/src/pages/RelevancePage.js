@@ -38,8 +38,7 @@ import { storage } from '../utils/helpers';
 const AI_MODELS = [
   { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo (추천)', description: '빠르고 비용 효율적인 모델' },
   { value: 'gpt-4', label: 'GPT-4', description: '더 높은 정확도를 제공하지만 비용이 더 높음' },
-  { value: 'claude-instant-1', label: 'Claude Instant 1', description: '빠른 응답 속도와 좋은 품질' },
-  { value: 'claude-2', label: 'Claude 2', description: '높은 품질의 분석과 정확도' },
+  { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', description: '최신 경량화 모델, 빠른 속도와 저렴한 비용' },
 ];
 
 const RelevancePage = () => {
@@ -51,9 +50,11 @@ const RelevancePage = () => {
   const [selectedFile, setSelectedFile] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('gpt-3.5-turbo');
+  const [analysisMode, setAnalysisMode] = useState('sync'); // 'sync' 또는 'async'
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ open: false, type: 'info', message: '', title: '' });
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
+  const [pollingInterval, setPollingInterval] = useState(null);
   
   // 크롤러 페이지에서 전달된 데이터 처리
   useEffect(() => {
@@ -154,31 +155,57 @@ const RelevancePage = () => {
     setLoading(true);
     
     try {
-      const result = await relevanceService.evaluateNews(selectedFile, apiKey, model);
+      let result;
       
-      if (result.success) {
-        setAlert({
-          open: true,
-          type: 'success',
-          title: '관련성 평가 완료',
-          message: `뉴스 기사의 관련성 평가가 완료되었습니다. 관련 뉴스: ${result.stats.relevant_count}/${result.stats.total_count} (${result.stats.relevant_percent}%)`,
-        });
+      if (analysisMode === 'sync') {
+        // 동기 방식 - 즉시 결과 반환
+        result = await relevanceService.evaluateNewsSync(selectedFile, apiKey, model);
         
-        // 결과 페이지로 이동 (1초 후)
-        setTimeout(() => {
-          navigate('/results', { 
-            state: { 
-              evaluationResult: result,
-              fromRelevance: true
-            }
+        if (result.success) {
+          setAlert({
+            open: true,
+            type: 'success',
+            title: '관련성 평가 완료',
+            message: `뉴스 기사의 관련성 평가가 완료되었습니다. 관련 뉴스: ${result.stats.relevant_items}/${result.stats.total_items} (${result.stats.relevant_percent}%)`,
           });
-        }, 1000);
+          
+          // 결과 페이지로 이동 (1초 후)
+          setTimeout(() => {
+            navigate('/results', { 
+              state: { 
+                evaluationResult: result,
+                fromRelevance: true
+              }
+            });
+          }, 1000);
+        } else {
+          setAlert({
+            open: true,
+            type: 'error',
+            message: `관련성 평가에 실패했습니다: ${result.message}`,
+          });
+        }
       } else {
-        setAlert({
-          open: true,
-          type: 'error',
-          message: `관련성 평가에 실패했습니다: ${result.message}`,
-        });
+        // 비동기 방식 - 백그라운드 처리
+        result = await relevanceService.evaluateNews(selectedFile, apiKey, model);
+        
+        if (result.success) {
+          setAlert({
+            open: true,
+            type: 'info',
+            title: '관련성 평가 시작',
+            message: `${result.stats.total_items}개 뉴스 항목의 관련성 평가를 시작했습니다. 분석은 백그라운드에서 진행되며, 완료되면 자동으로 결과 페이지로 이동합니다.`,
+          });
+          
+          // 상태 폴링 시작
+          startPolling(selectedFile);
+        } else {
+          setAlert({
+            open: true,
+            type: 'error',
+            message: `관련성 평가 시작에 실패했습니다: ${result.message}`,
+          });
+        }
       }
     } catch (error) {
       console.error('관련성 평가 중 오류:', error);
@@ -191,6 +218,63 @@ const RelevancePage = () => {
       setLoading(false);
     }
   };
+  
+  // 상태 폴링 시작
+  const startPolling = (fileName) => {
+    const interval = setInterval(async () => {
+      try {
+        const statusResult = await relevanceService.checkAnalysisStatus(fileName);
+        
+        if (statusResult.status === 'completed') {
+          clearInterval(interval);
+          setPollingInterval(null);
+          
+          setAlert({
+            open: true,
+            type: 'success',
+            title: '관련성 평가 완료',
+            message: '뉴스 기사의 관련성 평가가 완료되었습니다.',
+          });
+          
+          // 결과 페이지로 이동
+          setTimeout(() => {
+            navigate('/results', { 
+              state: { 
+                evaluationResult: {
+                  success: true,
+                  file_path: statusResult.file.file_name,
+                  message: '분석 완료'
+                },
+                fromRelevance: true
+              }
+            });
+          }, 1000);
+        } else if (statusResult.status === 'error') {
+          clearInterval(interval);
+          setPollingInterval(null);
+          
+          setAlert({
+            open: true,
+            type: 'error',
+            message: `분석 중 오류가 발생했습니다: ${statusResult.message}`,
+          });
+        }
+      } catch (error) {
+        console.error('상태 확인 중 오류:', error);
+      }
+    }, 5000); // 5초마다 확인
+    
+    setPollingInterval(interval);
+  };
+  
+  // 컴포넌트 언마운트 시 폴링 정리
+  useEffect(() => {
+    return () => {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+      }
+    };
+  }, [pollingInterval]);
 
   return (
     <Box>
@@ -312,6 +396,26 @@ const RelevancePage = () => {
               </Typography>
             </Box>
             
+            <Box sx={{ mb: 3 }}>
+              <FormControl fullWidth variant="outlined">
+                <InputLabel>분석 방식</InputLabel>
+                <Select
+                  value={analysisMode}
+                  onChange={(e) => setAnalysisMode(e.target.value)}
+                  label="분석 방식"
+                >
+                  <MenuItem value="sync">동기 방식 (즉시 결과 확인)</MenuItem>
+                  <MenuItem value="async">비동기 방식 (백그라운드 처리)</MenuItem>
+                </Select>
+              </FormControl>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                {analysisMode === 'sync' 
+                  ? '분석 완료까지 기다린 후 즉시 결과를 확인할 수 있습니다. 기사 수가 많으면 시간이 오래 걸릴 수 있습니다.'
+                  : '분석을 백그라운드에서 진행하며, 완료되면 자동으로 결과 페이지로 이동합니다.'
+                }
+              </Typography>
+            </Box>
+            
             <Divider sx={{ mb: 3 }} />
             
             <Box sx={{ textAlign: 'center' }}>
@@ -327,7 +431,10 @@ const RelevancePage = () => {
                 관련성 평가 시작
               </Button>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                선택한 파일의 모든 뉴스 기사를 평가합니다. 기사 수에 따라 수 분이 소요될 수 있습니다.
+                {analysisMode === 'sync' 
+                  ? '선택한 파일의 모든 뉴스 기사를 평가하고 완료까지 기다립니다. 기사 수에 따라 수 분이 소요될 수 있습니다.'
+                  : '선택한 파일의 모든 뉴스 기사를 백그라운드에서 평가합니다. 완료되면 자동으로 알림을 받습니다.'
+                }
               </Typography>
             </Box>
           </Paper>
@@ -395,7 +502,7 @@ const RelevancePage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="LLM 모델 선택"
-                    secondary="GPT-3.5 모델은 빠르고 비용이 저렴합니다. GPT-4는 정확도가 높지만 비용이 더 비쌉니다."
+                    secondary="GPT-3.5 Turbo는 빠르고 비용이 저렴합니다. GPT-4는 정확도가 높지만 비용이 더 비쌉니다. GPT-4.1 Nano는 최신 경량화 모델로 빠르고 비용 효율적입니다."
                   />
                 </ListItem>
                 <ListItem>
@@ -405,6 +512,15 @@ const RelevancePage = () => {
                   <ListItemText
                     primary="평가 시간"
                     secondary="뉴스 기사 수에 따라 평가 시간이 달라집니다. 100개 기사 기준 약 10-15분이 소요됩니다."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <HelpOutlineIcon color="primary" fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="분석 방식"
+                    secondary="동기 방식은 결과를 즉시 확인하고, 비동기 방식은 백그라운드에서 처리하여 다른 작업을 계속할 수 있습니다."
                   />
                 </ListItem>
                 <ListItem>
@@ -424,7 +540,7 @@ const RelevancePage = () => {
       
       <LoadingOverlay
         open={loading}
-        message="뉴스 기사의 관련성을 평가 중입니다. 기사 수에 따라 최대 수 분이 소요될 수 있습니다..."
+        message={`뉴스 기사의 관련성을 평가 중입니다. ${analysisMode === 'sync' ? '기사 수에 따라 최대 수 분이 소요될 수 있습니다...' : '백그라운드에서 처리 중이며, 완료되면 자동으로 알림을 받습니다...'}`}
       />
     </Box>
   );

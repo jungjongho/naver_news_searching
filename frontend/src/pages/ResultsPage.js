@@ -197,12 +197,12 @@ const ResultsPage = () => {
   
   // 키워드 차트 데이터 생성
   const getKeywordChartData = () => {
-    if (!fileStats || !fileStats.keyword_counts) return null;
+    if (!fileStats || !fileStats.keyword_stats || !Array.isArray(fileStats.keyword_stats)) return null;
     
     // 상위 10개 키워드만 표시
-    const keywordEntries = Object.entries(fileStats.keyword_counts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-    const keywords = keywordEntries.map(entry => entry[0]);
-    const counts = keywordEntries.map(entry => entry[1]);
+    const keywordEntries = fileStats.keyword_stats.slice(0, 10);
+    const keywords = keywordEntries.map(item => item.keyword);
+    const counts = keywordEntries.map(item => item.count);
     
     return {
       labels: keywords,
@@ -266,7 +266,7 @@ const ResultsPage = () => {
                           <TableCell sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {file.file_name}
                           </TableCell>
-                          <TableCell>{formatDate(file.modified_time_str)}</TableCell>
+                          <TableCell>{formatDate(file.modified)}</TableCell>
                           <TableCell>{file.file_size_str}</TableCell>
                           <TableCell>
                             {file.has_evaluation || file.is_evaluated ? (
@@ -352,7 +352,7 @@ const ResultsPage = () => {
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={6}>
                     <Typography variant="body2">
-                      <strong>수정 날짜:</strong> {formatDate(selectedFile.modified_time_str)}
+                      <strong>수정 날짜:</strong> {formatDate(selectedFile.modified)}
                     </Typography>
                     <Typography variant="body2">
                       <strong>파일 크기:</strong> {selectedFile.file_size_str}
@@ -409,7 +409,7 @@ const ResultsPage = () => {
                   <Tab 
                     icon={<BarChartIcon />} 
                     label="키워드 분석" 
-                    disabled={!fileStats || !fileStats.keyword_counts}
+                    disabled={!fileStats || !fileStats.keyword_stats || !Array.isArray(fileStats.keyword_stats)}
                   />
                 </Tabs>
                 
@@ -577,7 +577,7 @@ const ResultsPage = () => {
                   )}
                   
                   {/* 키워드 분석 탭 */}
-                  {tabValue === 2 && fileStats && fileStats.keyword_counts && (
+                  {tabValue === 2 && fileStats && fileStats.keyword_stats && Array.isArray(fileStats.keyword_stats) && (
                     <Box>
                       <Typography variant="subtitle1" gutterBottom align="center">
                         상위 10개 키워드 분포
@@ -626,15 +626,14 @@ const ResultsPage = () => {
                               </TableRow>
                             </TableHead>
                             <TableBody>
-                              {fileStats.keyword_counts && Object.entries(fileStats.keyword_counts)
-                                .sort((a, b) => b[1] - a[1])
+                              {fileStats.keyword_stats
                                 .slice(0, 10)
-                                .map(([keyword, count]) => (
-                                  <TableRow key={keyword}>
-                                    <TableCell>{keyword}</TableCell>
-                                    <TableCell align="right">{count}</TableCell>
+                                .map((item) => (
+                                  <TableRow key={item.keyword}>
+                                    <TableCell>{item.keyword}</TableCell>
+                                    <TableCell align="right">{item.count}</TableCell>
                                     <TableCell align="right">
-                                      {Math.round((count / fileStats.total_rows) * 100)}%
+                                      {Math.round((item.count / fileStats.total_rows) * 100)}%
                                     </TableCell>
                                   </TableRow>
                                 ))}
@@ -672,20 +671,20 @@ const ResultsPage = () => {
           파일 미리보기: {selectedFile?.file_name}
         </DialogTitle>
         <DialogContent dividers>
-          {filePreview ? (
+          {filePreview && filePreview.columns && filePreview.data ? (
             <TableContainer>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    {filePreview.column_names.map((column) => (
+                    {filePreview.columns.map((column) => (
                       <TableCell key={column}>{column}</TableCell>
                     ))}
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filePreview.preview_data.map((row, rowIndex) => (
+                  {filePreview.data.map((row, rowIndex) => (
                     <TableRow key={rowIndex}>
-                      {filePreview.column_names.map((column) => (
+                      {filePreview.columns.map((column) => (
                         <TableCell key={column}>
                           {typeof row[column] === 'boolean' ? (
                             row[column] ? '예' : '아니오'

@@ -36,7 +36,7 @@ class NaverApiService:
             raise ValueError("NAVER_CLIENT_ID와 NAVER_CLIENT_SECRET이 설정되어 있지 않습니다.")
         
         # 결과 저장 디렉토리 확인 및 생성
-        os.makedirs(settings.RESULTS_PATH, exist_ok=True)
+        os.makedirs(settings.CRAWLING_RESULTS_PATH, exist_ok=True)
         
         # domain_to_source 매핑 테이블 로드
         self.domain_to_source = self._load_domain_to_source_mapping()
@@ -49,19 +49,19 @@ class NaverApiService:
             도메인을 키로, 신문사명을 값으로 하는 딕셔너리
         """
         try:
-            # CSV 파일 경로 (backend 폴더의 domain_to_source.csv)
-            csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'domain_to_source.csv')
+            # XLSX 파일 경로 (backend 폴더의 domain_to_source.xlsx)
+            xlsx_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'domain_to_source.xlsx')
             
-            if not os.path.exists(csv_path):
-                logger.warning(f"domain_to_source.csv 파일을 찾을 수 없습니다: {csv_path}")
+            if not os.path.exists(xlsx_path):
+                logger.warning(f"domain_to_source.xlsx 파일을 찾을 수 없습니다: {xlsx_path}")
                 return {}
             
-            # CSV 파일 읽기
-            df = pd.read_csv(csv_path, encoding='utf-8-sig')
+            # XLSX 파일 읽기
+            df = pd.read_excel(xlsx_path, engine='openpyxl')
             
             # domain과 source 컬럼이 있는지 확인
             if 'domain' not in df.columns or 'source' not in df.columns:
-                logger.error("CSV 파일에 'domain' 또는 'source' 컬럼이 없습니다.")
+                logger.error("XLSX 파일에 'domain' 또는 'source' 컬럼이 없습니다.")
                 return {}
             
             # 딕셔너리로 변환
@@ -71,7 +71,7 @@ class NaverApiService:
             return domain_mapping
             
         except Exception as e:
-            logger.error(f"domain_to_source.csv 파일 로드 중 오류 발생: {str(e)}")
+            logger.error(f"domain_to_source.xlsx 파일 로드 중 오류 발생: {str(e)}")
             return {}
     
     def _extract_domain_from_url(self, url: str) -> str:
@@ -312,14 +312,13 @@ class NaverApiService:
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             keywords_str = self._format_keywords_for_filename(keywords)
             
-            file_name = f"naver_news_{keywords_str}_{timestamp}.csv"
-            file_path = os.path.join(settings.RESULTS_PATH, file_name)
+            file_name = f"naver_news_{keywords_str}_{timestamp}.xlsx"
+            file_path = os.path.join(settings.CRAWLING_RESULTS_PATH, file_name)
             
-            # CSV 파일로 저장 (다운로드 폴더에도 복사)
-            success, download_path = save_to_csv(
+            # Excel 파일로 저장 (다운로드 폴더에도 복사)
+            success, download_path = save_to_excel(
                 news_items, 
                 file_path, 
-                encoding='utf-8-sig',
                 copy_to_download=settings.AUTO_COPY_TO_DOWNLOADS,
                 download_path=settings.USER_DOWNLOAD_PATH
             )

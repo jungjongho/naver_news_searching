@@ -22,9 +22,15 @@ async def download_file(file_name: str):
     """
     파일 다운로드
     """
-    file_path = os.path.join(settings.RESULTS_PATH, file_name)
+    # 파일 경로 찾기
+    file_path = None
+    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
+        potential_path = os.path.join(search_path, file_name)
+        if os.path.exists(potential_path):
+            file_path = potential_path
+            break
     
-    if not os.path.exists(file_path):
+    if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
     
     try:
@@ -32,9 +38,7 @@ async def download_file(file_name: str):
         content_type, _ = mimetypes.guess_type(file_path)
         if not content_type:
             # 기본 MIME 타입
-            if file_name.endswith('.csv'):
-                content_type = 'text/csv'
-            elif file_name.endswith('.xlsx'):
+            if file_name.endswith('.xlsx'):
                 content_type = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             else:
                 content_type = 'application/octet-stream'

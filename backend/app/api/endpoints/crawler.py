@@ -8,7 +8,7 @@ import os
 
 from app.models.schemas import CrawlerRequest, CrawlerResponse, FileListResponse, DownloadLinkResponse
 from app.services.naver_api_service import NaverApiService
-from app.utils.file_utils import get_csv_files, get_csv_preview, get_csv_statistics
+from app.utils.file_utils import get_excel_files, get_excel_preview, get_excel_statistics
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -68,8 +68,8 @@ async def crawl_news(
                 errors={"save_error": "결과 파일을 저장할 수 없습니다."}
             )
         
-        # 상대 경로로 변환
-        rel_path = os.path.relpath(file_path, os.path.dirname(settings.RESULTS_PATH))
+        # 상대 경로로 변환 (crawling 폴더 기준)
+        rel_path = os.path.relpath(file_path, settings.CRAWLING_RESULTS_PATH)
         
         # 다운로드 폴더 저장 결과 추가
         message = f"{len(news_items)}개의 뉴스 항목을 성공적으로 수집했습니다."
@@ -99,7 +99,7 @@ async def get_files():
     """
     크롤링 결과 파일 목록 조회
     """
-    files = get_csv_files(settings.RESULTS_PATH)
+    files = get_excel_files()  # 모든 폴더에서 파일 조회
     return FileListResponse(files=files)
 
 @router.get("/files/{file_name}/preview")
@@ -107,12 +107,18 @@ async def get_file_preview(file_name: str, max_rows: int = 5):
     """
     파일 내용 미리보기
     """
-    file_path = os.path.join(settings.RESULTS_PATH, file_name)
+    # 파일 경로 찾기
+    file_path = None
+    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
+        potential_path = os.path.join(search_path, file_name)
+        if os.path.exists(potential_path):
+            file_path = potential_path
+            break
     
-    if not os.path.exists(file_path):
+    if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
     
-    preview = get_csv_preview(file_path, max_rows)
+    preview = get_excel_preview(file_path, max_rows)
     
     if "error" in preview:
         raise HTTPException(status_code=500, detail=preview["error"])
@@ -124,12 +130,18 @@ async def get_file_stats(file_name: str):
     """
     파일 통계 정보
     """
-    file_path = os.path.join(settings.RESULTS_PATH, file_name)
+    # 파일 경로 찾기
+    file_path = None
+    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
+        potential_path = os.path.join(search_path, file_name)
+        if os.path.exists(potential_path):
+            file_path = potential_path
+            break
     
-    if not os.path.exists(file_path):
+    if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
     
-    stats = get_csv_statistics(file_path)
+    stats = get_excel_statistics(file_path)
     
     if "error" in stats:
         raise HTTPException(status_code=500, detail=stats["error"])
@@ -141,9 +153,15 @@ async def get_file_download_link(file_name: str):
     """
     파일 다운로드 링크 생성
     """
-    file_path = os.path.join(settings.RESULTS_PATH, file_name)
+    # 파일 경로 찾기
+    file_path = None
+    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
+        potential_path = os.path.join(search_path, file_name)
+        if os.path.exists(potential_path):
+            file_path = potential_path
+            break
     
-    if not os.path.exists(file_path):
+    if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
     
     download_link = f"/api/download/{file_name}"

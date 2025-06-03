@@ -25,6 +25,12 @@ class Settings:
     BASE_DIR: Path = Path(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))).resolve()
     RESULTS_PATH: str = os.path.join(BASE_DIR, "results")
     
+    # 크롤링 결과 저장 경로
+    CRAWLING_RESULTS_PATH: str = os.path.join(BASE_DIR, "results", "crawling")
+    
+    # 연관성 분석 결과 저장 경로
+    RELEVANCE_RESULTS_PATH: str = os.path.join(BASE_DIR, "results", "relevance")
+    
     # 사용자 다운로드 폴더 경로
     USER_DOWNLOAD_PATH: str = os.path.join(HOME_DIR, "Downloads")
     
@@ -38,5 +44,11 @@ class Settings:
     DEFAULT_NEWS_COUNT: int = 100
     DEFAULT_NEWS_SORT: str = "date"  # date(최신순) 또는 sim(정확도순)
     DEFAULT_NEWS_DAYS: int = 30  # 최근 30일 뉴스
+    
+    # 관련성 분석 최적화 설정
+    RELEVANCE_MAX_WORKERS: int = int(os.getenv("RELEVANCE_MAX_WORKERS", "3"))
+    RELEVANCE_BATCH_SIZE: int = int(os.getenv("RELEVANCE_BATCH_SIZE", "5"))
+    RELEVANCE_TIMEOUT: float = float(os.getenv("RELEVANCE_TIMEOUT", "15.0"))
+    RELEVANCE_MAX_RETRIES: int = int(os.getenv("RELEVANCE_MAX_RETRIES", "2"))
 
 settings = Settings()

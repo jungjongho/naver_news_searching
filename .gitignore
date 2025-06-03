@@ -1,4 +1,25 @@
 # Python 관련
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # 가상 환경
 venv/
@@ -19,9 +40,12 @@ results/
 *.xlsx
 *.xls
 
-# node
+# Node.js 관련
 node_modules/
-
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
 # 빌드 파일
 frontend/build/
@@ -31,6 +55,7 @@ frontend/dist/
 .tmp/
 .temp/
 temp/
+temp_delete/
 
 # 캐시 디렉토리
 .cache/
@@ -55,3 +80,31 @@ htmlcov/
 
 # 기타 불필요한 파일
 .ipynb_checkpoints/
+
+# macOS 관련
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 테스트 파일
+test_*.py
+*_test.py
+test_*.csv
+test_results.*
+
+# 백업 파일
+*.backup
+*.bak
+*_backup.*
+requirements_backup.txt
+
+# IDE 관련
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 변환 유틸리티 (일회성 스크립트)
+convert_*.py
+cleanup_*.py
