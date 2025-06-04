@@ -9,7 +9,8 @@ import pandas as pd
 import datetime
 
 from app.models.schemas import RelevanceRequest, RelevanceResponse
-from app.services.relevance_service_optimized import OptimizedRelevanceService
+from app.services.relevance_service import RelevanceService
+from app.services.prompt_service import PromptService
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -20,13 +21,15 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+prompt_service = PromptService()
+
 @router.post("/analyze", response_model=RelevanceResponse)
 async def analyze_relevance(
     request: RelevanceRequest,
     background_tasks: BackgroundTasks
 ):
     """
-    뉴스 기사 관련성 분석 - 실제 LLM을 사용한 분석 (백그라운드 처리)
+    뉴스 기사 관련성 분석 - 단순화된 버전 (백그라운드 처리)
     """
     logger.info(f"Analyzing relevance for file: {request.file_path}")
     
@@ -44,11 +47,22 @@ async def analyze_relevance(
                 errors={"file_error": "File not found"}
             )
         
-        # OptimizedRelevanceService 인스턴스 생성 (설정값 사용)
-        relevance_service = OptimizedRelevanceService(
-            max_workers=settings.RELEVANCE_MAX_WORKERS, 
-            batch_size=settings.RELEVANCE_BATCH_SIZE
-        )
+        # RelevanceService 인스턴스 생성
+        relevance_service = RelevanceService()
+        
+        # 프롬프트 템플릿 설정
+        prompt_template = None
+        if request.prompt_id:
+            prompt_template = prompt_service.get_prompt_by_id(request.prompt_id)
+            if not prompt_template:
+                return RelevanceResponse(
+                    success=False,
+                    message=f"해당 ID의 프롬프트를 찾을 수 없습니다: {request.prompt_id}",
+                    errors={"prompt_error": "Prompt not found"}
+                )
+        else:
+            # 기본 활성 프롬프트 사용
+            prompt_template = prompt_service.get_active_prompt()
         
         # 파일 로드
         news_data = relevance_service.load_news_file(file_path)
@@ -63,11 +77,12 @@ async def analyze_relevance(
         # 백그라운드에서 분석 수행
         def perform_analysis():
             try:
-                # 실제 LLM을 사용한 분석 수행
-                analyzed_data, stats = relevance_service.analyze_news_batch(
+                # 단순화된 분석 수행
+                analyzed_data, stats = relevance_service.analyze_news_simple(
                     news_data, 
                     request.api_key, 
-                    request.model
+                    request.model,
+                    prompt_template
                 )
                 
                 # 결과 파일 생성
@@ -138,11 +153,22 @@ async def analyze_relevance_sync(
                 errors={"file_error": "File not found"}
             )
         
-        # OptimizedRelevanceService 인스턴스 생성 (설정값 사용)
-        relevance_service = OptimizedRelevanceService(
-            max_workers=settings.RELEVANCE_MAX_WORKERS, 
-            batch_size=settings.RELEVANCE_BATCH_SIZE
-        )
+        # RelevanceService 인스턴스 생성
+        relevance_service = RelevanceService()
+        
+        # 프롬프트 템플릿 설정
+        prompt_template = None
+        if request.prompt_id:
+            prompt_template = prompt_service.get_prompt_by_id(request.prompt_id)
+            if not prompt_template:
+                return RelevanceResponse(
+                    success=False,
+                    message=f"해당 ID의 프롬프트를 찾을 수 없습니다: {request.prompt_id}",
+                    errors={"prompt_error": "Prompt not found"}
+                )
+        else:
+            # 기본 활성 프롬프트 사용
+            prompt_template = prompt_service.get_active_prompt()
         
         # 파일 로드
         news_data = relevance_service.load_news_file(file_path)
@@ -154,11 +180,12 @@ async def analyze_relevance_sync(
                 errors={"data_error": "No news data found"}
             )
         
-        # 실제 LLM을 사용한 분석 수행
-        analyzed_data, stats = relevance_service.analyze_news_batch(
+        # 단순화된 분석 수행
+        analyzed_data, stats = relevance_service.analyze_news_simple(
             news_data, 
             request.api_key, 
-            request.model
+            request.model,
+            prompt_template
         )
         
         # 결과 파일 생성
@@ -240,4 +267,55 @@ async def get_analysis_status(file_name: str):
             "status": "error",
             "message": f"상태 확인 중 오류가 발생했습니다: {str(e)}",
             "file": None
+        }
+
+
+@router.post("/clean-columns/{file_name}")
+async def clean_file_columns(file_name: str):
+    """
+    기존 파일의 중복 컬럼 정리
+    """
+    try:
+        # 파일 경로 확인 (relevance 폴더 먼저 확인)
+        file_path = None
+        if os.path.exists(os.path.join(settings.RELEVANCE_RESULTS_PATH, file_name)):
+            file_path = os.path.join(settings.RELEVANCE_RESULTS_PATH, file_name)
+        elif os.path.exists(os.path.join(settings.CRAWLING_RESULTS_PATH, file_name)):
+            file_path = os.path.join(settings.CRAWLING_RESULTS_PATH, file_name)
+        elif os.path.exists(os.path.join(settings.RESULTS_PATH, file_name)):
+            file_path = os.path.join(settings.RESULTS_PATH, file_name)
+        
+        if not file_path:
+            return {
+                "success": False,
+                "message": f"파일을 찾을 수 없습니다: {file_name}",
+                "errors": {"file_error": "File not found"}
+            }
+        
+        # RelevanceService 인스턴스 생성
+        relevance_service = RelevanceService()
+        
+        # 파일 정리 수행
+        success = relevance_service.clean_existing_file(file_path)
+        
+        if success:
+            return {
+                "success": True,
+                "message": f"파일 정리가 완료되었습니다: {file_name}",
+                "file_path": file_path,
+                "backup_created": True
+            }
+        else:
+            return {
+                "success": False,
+                "message": f"파일 정리에 실패했습니다: {file_name}",
+                "errors": {"clean_error": "Failed to clean file columns"}
+            }
+    
+    except Exception as e:
+        logger.error(f"Error cleaning file columns: {str(e)}")
+        return {
+            "success": False,
+            "message": f"파일 정리 중 오류가 발생했습니다: {str(e)}",
+            "errors": {"clean_error": str(e)}
         }

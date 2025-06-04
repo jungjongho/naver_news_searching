@@ -9,7 +9,7 @@ import sys
 import logging
 from typing import List
 
-from app.api.endpoints import crawler, relevance, download
+from app.api.endpoints import crawler, relevance, download, prompts
 from app.core.config import settings
 
 # 로깅 설정
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(crawler.router)
 app.include_router(relevance.router)
 app.include_router(download.router)
+app.include_router(prompts.router)
 
 # 결과 파일 정적 호스팅
 app.mount("/results", StaticFiles(directory=results_dir), name="results")

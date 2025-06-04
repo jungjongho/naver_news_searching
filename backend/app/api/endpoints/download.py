@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 import logging
 import os
 import mimetypes
+from urllib.parse import quote
 
 from app.core.config import settings
 
@@ -47,9 +48,10 @@ async def download_file(file_name: str):
         with open(file_path, 'rb') as file:
             file_content = file.read()
         
-        # 파일 다운로드를 위한 헤더 설정
+        # 파일 다운로드를 위한 헤더 설정 (한글 파일명 인코딩)
+        encoded_filename = quote(file_name, safe='')
         headers = {
-            'Content-Disposition': f'attachment; filename="{file_name}"',
+            'Content-Disposition': f'attachment; filename*=UTF-8\'\'{encoded_filename}',
             'Content-Type': content_type
         }
         

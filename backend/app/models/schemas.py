@@ -54,7 +54,8 @@ class RelevanceRequest(BaseModel):
     """
     file_path: str = Field(..., description="평가할 CSV 파일 경로")
     api_key: str = Field(..., description="OpenAI 또는 Claude API 키")
-    model: Optional[str] = Field("gpt-3.5-turbo", description="사용할 LLM 모델")
+    model: Optional[str] = Field("gpt-4.1-nano", description="사용할 LLM 모델 (gpt-4.1-nano, gpt-4.1-mini, gpt-4.1, gpt-4o-mini, gpt-3.5-turbo 등)")
+    prompt_id: Optional[str] = Field(None, description="사용할 프롬프트 ID")
 
 
 class RelevanceResponse(BaseModel):
@@ -82,3 +83,62 @@ class DownloadLinkResponse(BaseModel):
     success: bool = Field(..., description="성공 여부")
     download_link: str = Field(..., description="다운로드 링크")
     file_name: str = Field(..., description="파일명")
+
+
+class PromptTemplate(BaseModel):
+    """
+    프롬프트 템플릿 스키마
+    """
+    id: Optional[str] = Field(None, description="프롬프트 ID")
+    name: str = Field(..., description="프롬프트 이름")
+    description: Optional[str] = Field(None, description="프롬프트 설명")
+    batch_prompt: str = Field(..., description="배치 처리용 프롬프트")
+    single_prompt: str = Field(..., description="단일 기사용 프롬프트")
+    system_message: Optional[str] = Field(None, description="시스템 메시지")
+    is_active: bool = Field(True, description="활성 상태")
+    created_at: Optional[datetime] = Field(None, description="생성 시간")
+    updated_at: Optional[datetime] = Field(None, description="수정 시간")
+
+    class Config:
+        populate_by_name = True
+
+
+class PromptCreateRequest(BaseModel):
+    """
+    프롬프트 생성 요청 스키마
+    """
+    name: str = Field(..., description="프롬프트 이름")
+    description: Optional[str] = Field(None, description="프롬프트 설명")
+    batch_prompt: str = Field(..., description="배치 처리용 프롬프트")
+    single_prompt: str = Field(..., description="단일 기사용 프롬프트")
+    system_message: Optional[str] = Field(None, description="시스템 메시지")
+
+
+class PromptUpdateRequest(BaseModel):
+    """
+    프롬프트 수정 요청 스키마
+    """
+    name: Optional[str] = Field(None, description="프롬프트 이름")
+    description: Optional[str] = Field(None, description="프롬프트 설명")
+    batch_prompt: Optional[str] = Field(None, description="배치 처리용 프롬프트")
+    single_prompt: Optional[str] = Field(None, description="단일 기사용 프롬프트")
+    system_message: Optional[str] = Field(None, description="시스템 메시지")
+    is_active: Optional[bool] = Field(None, description="활성 상태")
+
+
+class PromptListResponse(BaseModel):
+    """
+    프롬프트 목록 응답 스키마
+    """
+    prompts: List[PromptTemplate] = Field(..., description="프롬프트 목록")
+    total: int = Field(..., description="총 프롬프트 수")
+
+
+class PromptResponse(BaseModel):
+    """
+    프롬프트 응답 스키마
+    """
+    success: bool = Field(..., description="성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    prompt: Optional[PromptTemplate] = Field(None, description="프롬프트 데이터")
+    errors: Optional[Dict[str, str]] = Field(None, description="오류 정보")

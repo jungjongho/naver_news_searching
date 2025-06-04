@@ -10,6 +10,7 @@ import HomePage from './pages/HomePage';
 import CrawlerPage from './pages/CrawlerPage';
 import RelevancePage from './pages/RelevancePage';
 import ResultsPage from './pages/ResultsPage';
+import PromptsPage from './pages/PromptsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
             <Route path="crawler" element={<CrawlerPage />} />
             <Route path="relevance" element={<RelevancePage />} />
             <Route path="results" element={<ResultsPage />} />
+            <Route path="prompts" element={<PromptsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

@@ -3,13 +3,9 @@ import apiClient from './client';
 // 관련성 평가 API 서비스
 const relevanceService = {
   // 관련성 평가 요청 (비동기 - 백그라운드 처리)
-  evaluateNews: async (filePath, apiKey, model = 'gpt-3.5-turbo') => {
+  evaluateNews: async (requestData) => {
     try {
-      const response = await apiClient.post('/api/relevance/analyze', {
-        file_path: filePath,
-        api_key: apiKey,
-        model,
-      });
+      const response = await apiClient.post('/api/relevance/analyze', requestData);
       return response.data;
     } catch (error) {
       console.error('관련성 평가 중 오류:', error);
@@ -18,13 +14,9 @@ const relevanceService = {
   },
 
   // 관련성 평가 요청 (동기 - 즉시 결과 반환)
-  evaluateNewsSync: async (filePath, apiKey, model = 'gpt-3.5-turbo') => {
+  evaluateNewsSync: async (requestData) => {
     try {
-      const response = await apiClient.post('/api/relevance/analyze-sync', {
-        file_path: filePath,
-        api_key: apiKey,
-        model,
-      });
+      const response = await apiClient.post('/api/relevance/analyze-sync', requestData);
       return response.data;
     } catch (error) {
       console.error('동기 관련성 평가 중 오류:', error);

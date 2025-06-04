@@ -44,11 +44,5 @@ class Settings:
     DEFAULT_NEWS_COUNT: int = 100
     DEFAULT_NEWS_SORT: str = "date"  # date(최신순) 또는 sim(정확도순)
     DEFAULT_NEWS_DAYS: int = 30  # 최근 30일 뉴스
-    
-    # 관련성 분석 최적화 설정
-    RELEVANCE_MAX_WORKERS: int = int(os.getenv("RELEVANCE_MAX_WORKERS", "3"))
-    RELEVANCE_BATCH_SIZE: int = int(os.getenv("RELEVANCE_BATCH_SIZE", "5"))
-    RELEVANCE_TIMEOUT: float = float(os.getenv("RELEVANCE_TIMEOUT", "15.0"))
-    RELEVANCE_MAX_RETRIES: int = int(os.getenv("RELEVANCE_MAX_RETRIES", "2"))
 
 settings = Settings()
