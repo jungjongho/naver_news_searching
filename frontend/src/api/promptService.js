@@ -60,6 +60,17 @@ export const promptService = {
       }
     });
     return response.data;
+  },
+
+  // 통합 프롬프트 컴파일
+  compilePrompt: async (promptId, title = '', content = '') => {
+    const response = await apiClient.get(`/api/prompts/compile/${promptId}`, {
+      params: {
+        title: title,
+        content: content
+      }
+    });
+    return response.data;
   }
 };
 

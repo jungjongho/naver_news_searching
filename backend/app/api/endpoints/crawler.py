@@ -19,9 +19,18 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# NaverApiService 인스턴스 생성 함수
 def get_naver_api_service() -> NaverApiService:
     return NaverApiService()
+
+def _find_file_path(file_name: str) -> Optional[str]:
+    """여러 디렉토리에서 파일 경로 찾기"""
+    search_paths = [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]
+    
+    for search_path in search_paths:
+        potential_path = os.path.join(search_path, file_name)
+        if os.path.exists(potential_path):
+            return potential_path
+    return None
 
 @router.post("/crawl", response_model=CrawlerResponse)
 async def crawl_news(
@@ -29,9 +38,7 @@ async def crawl_news(
     background_tasks: BackgroundTasks,
     naver_api_service: NaverApiService = Depends(get_naver_api_service)
 ):
-    """
-    키워드 목록에 대한 뉴스 크롤링
-    """
+    """키워드 목록에 대한 뉴스 크롤링"""
     logger.info(f"Searching news for keywords: {request.keywords}")
     
     try:
@@ -48,7 +55,9 @@ async def crawl_news(
             request.keywords, 
             max_news_per_keyword=request.max_news_per_keyword,
             sort=request.sort,
-            days=request.days
+            days=request.days,
+            start_date=request.start_date,
+            end_date=request.end_date
         )
         
         if not news_items:
@@ -68,10 +77,10 @@ async def crawl_news(
                 errors={"save_error": "결과 파일을 저장할 수 없습니다."}
             )
         
-        # 상대 경로로 변환 (crawling 폴더 기준)
+        # 상대 경로로 변환
         rel_path = os.path.relpath(file_path, settings.CRAWLING_RESULTS_PATH)
         
-        # 다운로드 폴더 저장 결과 추가
+        # 메시지 생성
         message = f"{len(news_items)}개의 뉴스 항목을 성공적으로 수집했습니다."
         if download_path:
             message += f" 결과 파일이 다운로드 폴더에 자동으로 저장되었습니다: {os.path.basename(download_path)}"
@@ -96,24 +105,14 @@ async def crawl_news(
 
 @router.get("/files", response_model=FileListResponse)
 async def get_files():
-    """
-    크롤링 결과 파일 목록 조회
-    """
-    files = get_excel_files()  # 모든 폴더에서 파일 조회
+    """크롤링 결과 파일 목록 조회"""
+    files = get_excel_files()
     return FileListResponse(files=files)
 
 @router.get("/files/{file_name}/preview")
 async def get_file_preview(file_name: str, max_rows: int = 5):
-    """
-    파일 내용 미리보기
-    """
-    # 파일 경로 찾기
-    file_path = None
-    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
-        potential_path = os.path.join(search_path, file_name)
-        if os.path.exists(potential_path):
-            file_path = potential_path
-            break
+    """파일 내용 미리보기"""
+    file_path = _find_file_path(file_name)
     
     if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
@@ -127,16 +126,8 @@ async def get_file_preview(file_name: str, max_rows: int = 5):
 
 @router.get("/files/{file_name}/statistics")
 async def get_file_stats(file_name: str):
-    """
-    파일 통계 정보
-    """
-    # 파일 경로 찾기
-    file_path = None
-    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
-        potential_path = os.path.join(search_path, file_name)
-        if os.path.exists(potential_path):
-            file_path = potential_path
-            break
+    """파일 통계 정보"""
+    file_path = _find_file_path(file_name)
     
     if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
@@ -150,16 +141,8 @@ async def get_file_stats(file_name: str):
 
 @router.get("/files/{file_name}/download-link", response_model=DownloadLinkResponse)
 async def get_file_download_link(file_name: str):
-    """
-    파일 다운로드 링크 생성
-    """
-    # 파일 경로 찾기
-    file_path = None
-    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
-        potential_path = os.path.join(search_path, file_name)
-        if os.path.exists(potential_path):
-            file_path = potential_path
-            break
+    """파일 다운로드 링크 생성"""
+    file_path = _find_file_path(file_name)
     
     if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")

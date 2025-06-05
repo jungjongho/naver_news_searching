@@ -33,6 +33,28 @@ const relevanceService = {
       console.error('분석 상태 확인 중 오류:', error);
       throw error;
     }
+  },
+
+  // 진행 상황 초기화 API
+  initializeProgress: async (requestData) => {
+    try {
+      const response = await apiClient.post('/api/relevance/initialize-progress', requestData);
+      return response.data;
+    } catch (error) {
+      console.error('진행 상황 초기화 중 오류:', error);
+      throw error;
+    }
+  },
+
+  // 진행 상황 조회 (새로 추가)
+  getAnalysisProgress: async (sessionId) => {
+    try {
+      const response = await apiClient.get(`/api/relevance/progress/${sessionId}`);
+      return response.data;
+    } catch (error) {
+      console.error('진행 상황 조회 중 오류:', error);
+      throw error;
+    }
   }
 };
 

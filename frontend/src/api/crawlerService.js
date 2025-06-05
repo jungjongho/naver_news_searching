@@ -3,14 +3,24 @@ import apiClient from './client';
 // 크롤러 API 서비스
 const crawlerService = {
   // 뉴스 크롤링 요청
-  crawlNews: async (keywords, maxNewsPerKeyword = 100, sort = 'date', days = 30) => {
+  crawlNews: async (keywords, maxNewsPerKeyword = 100, sort = 'date', days = 30, startDate = null, endDate = null) => {
     try {
-      const response = await apiClient.post('/api/crawler/crawl', {
+      const requestData = {
         keywords,
         max_news_per_keyword: maxNewsPerKeyword,
         sort: sort,
         days: days
-      });
+      };
+      
+      // 날짜 범위가 지정된 경우 추가
+      if (startDate) {
+        requestData.start_date = startDate;
+      }
+      if (endDate) {
+        requestData.end_date = endDate;
+      }
+      
+      const response = await apiClient.post('/api/crawler/crawl', requestData);
       return response.data;
     } catch (error) {
       console.error('뉴스 크롤링 중 오류:', error);

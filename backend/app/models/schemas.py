@@ -33,6 +33,8 @@ class CrawlerRequest(BaseModel):
     max_news_per_keyword: Optional[int] = Field(100, description="키워드당 최대 뉴스 건수")
     sort: Optional[str] = Field("date", description="정렬 방식 (date:최신순, sim:정확도순)")
     days: Optional[int] = Field(30, description="최근 몇 일 간의 뉴스를 검색할지 설정")
+    start_date: Optional[str] = Field(None, description="검색 시작 날짜 (YYYY-MM-DD 형식)")
+    end_date: Optional[str] = Field(None, description="검색 종료 날짜 (YYYY-MM-DD 형식)")
 
 
 class CrawlerResponse(BaseModel):
@@ -67,6 +69,7 @@ class RelevanceResponse(BaseModel):
     file_path: Optional[str] = Field(None, description="결과 파일 경로")
     stats: Optional[Dict[str, Any]] = Field(None, description="평가 통계 정보")
     errors: Optional[Dict[str, str]] = Field(None, description="오류 정보")
+    session_id: Optional[str] = Field(None, description="세션 ID")
 
 
 class FileListResponse(BaseModel):
@@ -87,13 +90,19 @@ class DownloadLinkResponse(BaseModel):
 
 class PromptTemplate(BaseModel):
     """
-    프롬프트 템플릿 스키마
+    통합 프롬프트 템플릿 스키마
     """
     id: Optional[str] = Field(None, description="프롬프트 ID")
     name: str = Field(..., description="프롬프트 이름")
     description: Optional[str] = Field(None, description="프롬프트 설명")
-    batch_prompt: str = Field(..., description="배치 처리용 프롬프트")
-    single_prompt: str = Field(..., description="단일 기사용 프롬프트")
+    
+    # 통합 프롬프트 구성 요소
+    role_definition: str = Field(..., description="역할 정의")
+    detailed_instructions: str = Field(..., description="상세 지침")
+    few_shot_examples: str = Field(..., description="Few-shot 예시")
+    cot_process: str = Field(..., description="Chain of Thought - 단계별 사고 과정")
+    base_prompt: str = Field(..., description="기본 프롬프트")
+    
     system_message: Optional[str] = Field(None, description="시스템 메시지")
     is_active: bool = Field(True, description="활성 상태")
     created_at: Optional[datetime] = Field(None, description="생성 시간")
@@ -101,27 +110,58 @@ class PromptTemplate(BaseModel):
 
     class Config:
         populate_by_name = True
+    
+    def get_compiled_prompt(self) -> str:
+        """
+        모든 구성 요소를 하나의 프롬프트로 컴파일
+        """
+        return f"""## 역할 정의
+{self.role_definition}
+
+## 상세 지침
+{self.detailed_instructions}
+
+## Few-shot 예시
+{self.few_shot_examples}
+
+## 단계별 사고 과정 (Chain of Thought)
+{self.cot_process}
+
+## 기본 프롬프트
+{self.base_prompt}"""
 
 
 class PromptCreateRequest(BaseModel):
     """
-    프롬프트 생성 요청 스키마
+    통합 프롬프트 생성 요청 스키마
     """
     name: str = Field(..., description="프롬프트 이름")
     description: Optional[str] = Field(None, description="프롬프트 설명")
-    batch_prompt: str = Field(..., description="배치 처리용 프롬프트")
-    single_prompt: str = Field(..., description="단일 기사용 프롬프트")
+    
+    # 통합 프롬프트 구성 요소
+    role_definition: str = Field(..., description="역할 정의")
+    detailed_instructions: str = Field(..., description="상세 지침")
+    few_shot_examples: str = Field(..., description="Few-shot 예시")
+    cot_process: str = Field(..., description="Chain of Thought - 단계별 사고 과정")
+    base_prompt: str = Field(..., description="기본 프롬프트")
+    
     system_message: Optional[str] = Field(None, description="시스템 메시지")
 
 
 class PromptUpdateRequest(BaseModel):
     """
-    프롬프트 수정 요청 스키마
+    통합 프롬프트 수정 요청 스키마
     """
     name: Optional[str] = Field(None, description="프롬프트 이름")
     description: Optional[str] = Field(None, description="프롬프트 설명")
-    batch_prompt: Optional[str] = Field(None, description="배치 처리용 프롬프트")
-    single_prompt: Optional[str] = Field(None, description="단일 기사용 프롬프트")
+    
+    # 통합 프롬프트 구성 요소
+    role_definition: Optional[str] = Field(None, description="역할 정의")
+    detailed_instructions: Optional[str] = Field(None, description="상세 지침")
+    few_shot_examples: Optional[str] = Field(None, description="Few-shot 예시")
+    cot_process: Optional[str] = Field(None, description="Chain of Thought - 단계별 사고 과정")
+    base_prompt: Optional[str] = Field(None, description="기본 프롬프트")
+    
     system_message: Optional[str] = Field(None, description="시스템 메시지")
     is_active: Optional[bool] = Field(None, description="활성 상태")
 

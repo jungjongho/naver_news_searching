@@ -1,16 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 import sys
 import logging
-from typing import List
 
 from app.api.endpoints import crawler, relevance, download, prompts
 from app.core.config import settings
+from app.common.exceptions import NewsSearchException
+from app.common.exception_handlers import (
+    news_search_exception_handler,
+    general_exception_handler
+)
 
 # 로깅 설정
 logging.basicConfig(
@@ -21,14 +25,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # 결과 디렉토리 생성
-results_dir = settings.RESULTS_PATH
-os.makedirs(results_dir, exist_ok=True)
+os.makedirs(settings.RESULTS_PATH, exist_ok=True)
 
 app = FastAPI(
     title="네이버 뉴스 검색 API",
-    description="네이버 뉴스 API를 활용한 뉴스 검색 및 분석 서비스",
-    version="1.0.0",
+    description="네이버 뉴스 API를 활용한 뉴스 검색 및 분석 서비스 (리팩토링됨)",
+    version="2.0.0",
 )
+
+# 전역 예외 핸들러 등록
+app.add_exception_handler(NewsSearchException, news_search_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
 
 # CORS 설정
 app.add_middleware(
@@ -46,7 +53,7 @@ app.include_router(download.router)
 app.include_router(prompts.router)
 
 # 결과 파일 정적 호스팅
-app.mount("/results", StaticFiles(directory=results_dir), name="results")
+app.mount("/results", StaticFiles(directory=settings.RESULTS_PATH), name="results")
 
 @app.get("/")
 async def root():
@@ -58,9 +65,7 @@ async def health_check():
 
 @app.get("/api-key-status")
 async def api_key_status():
-    """
-    네이버 API 키 설정 상태 확인
-    """
+    """네이버 API 키 설정 상태 확인"""
     client_id = settings.NAVER_CLIENT_ID
     client_secret = settings.NAVER_CLIENT_SECRET
     

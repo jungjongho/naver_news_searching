@@ -29,6 +29,7 @@ import LockIcon from '@mui/icons-material/Lock';
 
 import PageTitle from '../components/common/PageTitle';
 import AlertMessage from '../components/common/AlertMessage';
+import ProgressDialog from '../components/common/ProgressDialog';
 import LoadingOverlay from '../components/common/LoadingOverlay';
 import relevanceService from '../api/relevanceService';
 import crawlerService from '../api/crawlerService';
@@ -60,6 +61,10 @@ const RelevancePage = () => {
   const [selectedPrompt, setSelectedPrompt] = useState('');
   const [analysisMode, setAnalysisMode] = useState('sync'); // 'sync', 'async'
   const [loading, setLoading] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [progressData, setProgressData] = useState({});
+  const [progressInterval, setProgressInterval] = useState(null);
   const [alert, setAlert] = useState({ open: false, type: 'info', message: '', title: '' });
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
   const [pollingInterval, setPollingInterval] = useState(null);
@@ -158,6 +163,73 @@ const RelevancePage = () => {
     setModel(selectedModel);
     storage.set('ai_model', selectedModel);
   };
+
+  // 진행 상황 폴링 시작
+  const startProgressPolling = (sessionId) => {
+    console.log('Starting progress polling for session:', sessionId);
+    setCurrentSessionId(sessionId);
+    setShowProgress(true);
+    setProgressData({ current: 0, total: 0, stage: '분석 준비중', startTime: Date.now() });
+    
+    const interval = setInterval(async () => {
+      try {
+        console.log('Polling progress for session:', sessionId);
+        const response = await relevanceService.getAnalysisProgress(sessionId);
+        console.log('Progress response:', response);
+        
+        if (response.success) {
+          const progress = response.progress;
+          setProgressData(prev => ({
+            ...progress,
+            startTime: prev.startTime || Date.now()
+          }));
+          
+          // 분석 완료 확인
+          if (progress.stage === '분석 완료' || (progress.current >= progress.total && progress.total > 0)) {
+            clearInterval(interval);
+            setProgressInterval(null);
+            
+            // 잠시 후 다이얼로그 닫기
+            setTimeout(() => {
+              setShowProgress(false);
+              setAlert({
+                open: true,
+                type: 'success',
+                title: '관련성 평가 완료',
+                message: `뉴스 기사의 관련성 평가가 완료되었습니다.`,
+              });
+              
+              // 결과 페이지로 이동
+              setTimeout(() => {
+                navigate('/results', { 
+                  state: { 
+                    fromRelevance: true
+                  }
+                });
+              }, 1000);
+            }, 1500);
+          }
+        } else {
+          console.error('Progress polling failed:', response);
+        }
+      } catch (error) {
+        console.error('진행 상황 확인 중 오류:', error);
+      }
+    }, 1000); // 1초마다 확인 (더 빠르게)
+    
+    setProgressInterval(interval);
+  };
+  
+  // 진행 상황 폴링 중지
+  const stopProgressPolling = () => {
+    if (progressInterval) {
+      clearInterval(progressInterval);
+      setProgressInterval(null);
+    }
+    setShowProgress(false);
+    setCurrentSessionId(null);
+    setProgressData({});
+  };
   
   // 관련성 평가 실행
   const handleEvaluate = async () => {
@@ -193,31 +265,73 @@ const RelevancePage = () => {
       let result;
       
       if (analysisMode === 'sync') {
-        // 동기 방식 - 즉시 결과 반환
-        result = await relevanceService.evaluateNewsSync(requestData);
+        // 동기 방식 - 진행 상황 추적
+        setLoading(false); // 로딩 오버레이 대신 진행 다이얼로그 사용
         
-        if (result.success) {
-          setAlert({
-            open: true,
-            type: 'success',
-            title: '관련성 평가 완료',
-            message: `뉴스 기사의 관련성 평가가 완료되었습니다. 관련 뉴스: ${result.stats.relevant_items}/${result.stats.total_items} (${result.stats.relevant_percent}%)`,
-          });
+        // 고정된 세션 ID 사용 (백엔드와 동일)
+        const sessionId = "current_analysis";
+        console.log('Generated session ID:', sessionId);
+        console.log('Selected file:', selectedFile);
+        
+        try {
+          // 1. 먼저 진행 상황 초기화
+          console.log('초기화 중...');
+          const initResult = await relevanceService.initializeProgress(requestData);
           
-          // 결과 페이지로 이동 (1초 후)
-          setTimeout(() => {
-            navigate('/results', { 
-              state: { 
-                evaluationResult: result,
-                fromRelevance: true
+          if (!initResult.success) {
+            throw new Error(initResult.message);
+          }
+          
+          console.log('Progress initialized:', initResult);
+          
+          // 2. 진행 상황 추적 시작
+          startProgressPolling(sessionId);
+          
+          // 3. 진행 상황이 업데이트된 후 동기 API 호출
+          setTimeout(async () => {
+            try {
+              console.log('분석 시작...');
+              result = await relevanceService.evaluateNewsSync(requestData);
+              
+              // 진행 상황 폴링 중지
+              stopProgressPolling();
+              
+              if (result.success) {
+                setAlert({
+                  open: true,
+                  type: 'success',
+                  title: '관련성 평가 완료',
+                  message: `뉴스 기사의 관련성 평가가 완료되었습니다. 관련 뉴스: ${result.stats.relevant_items}/${result.stats.total_items} (${result.stats.relevant_percent}%)`,
+                });
+                
+                // 결과 페이지로 이동 (1초 후)
+                setTimeout(() => {
+                  navigate('/results', { 
+                    state: { 
+                      evaluationResult: result,
+                      fromRelevance: true
+                    }
+                  });
+                }, 1000);
+              } else {
+                setAlert({
+                  open: true,
+                  type: 'error',
+                  message: `관련성 평가에 실패했습니다: ${result.message}`,
+                });
               }
-            });
-          }, 1000);
-        } else {
+            } catch (error) {
+              stopProgressPolling();
+              throw error;
+            }
+          }, 1000); // 1초 후 API 호출 시작 (진행 상황이 표시될 시간 확보)
+        } catch (error) {
+          stopProgressPolling();
+          console.error('관련성 평가 중 오류:', error);
           setAlert({
             open: true,
             type: 'error',
-            message: `관련성 평가에 실패했습니다: ${result.message}`,
+            message: `오류가 발생했습니다: ${error.message}`,
           });
         }
       } else {
@@ -254,7 +368,7 @@ const RelevancePage = () => {
     }
   };
   
-  // 상태 폴링 시작
+  // 상태 폴링 시작 (비동기 방식용)
   const startPolling = (fileName) => {
     const interval = setInterval(async () => {
       try {
@@ -308,8 +422,11 @@ const RelevancePage = () => {
       if (pollingInterval) {
         clearInterval(pollingInterval);
       }
+      if (progressInterval) {
+        clearInterval(progressInterval);
+      }
     };
-  }, [pollingInterval]);
+  }, [pollingInterval, progressInterval]);
 
   return (
     <Box>
@@ -325,6 +442,14 @@ const RelevancePage = () => {
         title={alert.title}
         message={alert.message}
         onClose={() => setAlert({ ...alert, open: false })}
+      />
+
+      {/* 진행 상황 다이얼로그 */}
+      <ProgressDialog
+        open={showProgress}
+        title="관련성 평가 진행 중"
+        progress={progressData}
+        onClose={null} // 닫기 불가능
       />
       
       <Grid container spacing={3}>
@@ -475,13 +600,13 @@ const RelevancePage = () => {
                   onChange={(e) => setAnalysisMode(e.target.value)}
                   label="분석 방식"
                 >
-                  <MenuItem value="sync">동기 방식 (즉시 결과 확인) - 추천</MenuItem>
+                  <MenuItem value="sync">동기 방식 (실시간 진행률 표시) - 추천</MenuItem>
                   <MenuItem value="async">비동기 방식 (백그라운드 처리)</MenuItem>
                 </Select>
               </FormControl>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 {analysisMode === 'sync' 
-                  ? '분석 완료까지 기다린 후 즉시 결과를 확인할 수 있습니다. 기사 수가 많으면 시간이 오래 걸릴 수 있습니다.'
+                  ? '분석 진행 상황을 실시간으로 확인하며 완료까지 기다립니다. 기사 수에 따라 수 분이 소요될 수 있습니다.'
                   : '분석을 백그라운드에서 진행하며, 완료되면 자동으로 결과 페이지로 이동합니다.'
                 }
               </Typography>
@@ -495,7 +620,7 @@ const RelevancePage = () => {
                 color="primary"
                 size="large"
                 onClick={handleEvaluate}
-                disabled={!selectedFile || !apiKey || loading}
+                disabled={!selectedFile || !apiKey || loading || showProgress}
                 startIcon={<AnalyticsIcon />}
                 sx={{ px: 4, py: 1 }}
               >
@@ -503,7 +628,7 @@ const RelevancePage = () => {
               </Button>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 {analysisMode === 'sync' 
-                  ? '선택한 파일의 모든 뉴스 기사를 평가하고 완료까지 기다립니다. 기사 수에 따라 수 분이 소요될 수 있습니다.'
+                  ? '선택한 파일의 모든 뉴스 기사를 평가하고 실시간으로 진행 상황을 확인합니다.'
                   : '선택한 파일의 모든 뉴스 기사를 백그라운드에서 평가합니다. 완료되면 자동으로 알림을 받습니다.'
                 }
               </Typography>
@@ -535,7 +660,7 @@ const RelevancePage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="카테고리 분류"
-                    secondary="기사를 '자사 언급기사', '업계 관련기사', '건강기능식품·펫푸드', '기타' 카테고리로 분류합니다."
+                    secondary="기사를 '자사언급기사', '업계관련기사', '건기식펫푸드관련기사', '기타' 카테고리로 분류합니다."
                   />
                 </ListItem>
                 <ListItem>
@@ -543,8 +668,8 @@ const RelevancePage = () => {
                     <InfoOutlinedIcon color="primary" fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
-                    primary="평가 기준"
-                    secondary="기사의 내용, 키워드, 제목 등을 종합적으로 분석하여 화장품 업계와의 관련성을 판단합니다."
+                    primary="실시간 진행률"
+                    secondary="동기 방식 선택 시 각 기사의 분석 진행 상황과 통계를 실시간으로 확인할 수 있습니다."
                   />
                 </ListItem>
               </List>
@@ -573,7 +698,7 @@ const RelevancePage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="모델 선택"
-                    secondary="GPT-3.5-turbo는 빠르고 저렴한 모델입니다. GPT-4는 정확도가 높지만 비용이 더 비쌉니다."
+                    secondary="GPT-4.1-Nano는 빠르고 저렴한 최신 모델입니다. GPT-4는 정확도가 높지만 비용이 더 비쌉니다."
                   />
                 </ListItem>
                 <ListItem>
@@ -582,7 +707,7 @@ const RelevancePage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="평가 시간"
-                    secondary="뉴스 기사 수에 따라 평가 시간이 달라집니다. 100개 기사 기준 약 5-10분이 소요됩니다."
+                    secondary="뉴스 기사 수에 따라 평가 시간이 달라집니다. 100개 기사 기준 약 3-5분이 소요됩니다."
                   />
                 </ListItem>
                 <ListItem>
@@ -590,8 +715,8 @@ const RelevancePage = () => {
                     <HelpOutlineIcon color="primary" fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
-                    primary="분석 방식"
-                    secondary="동기 방식은 결과를 즉시 확인하고, 비동기 방식은 백그라운드에서 처리하여 다른 작업을 계속할 수 있습니다."
+                    primary="진행률 표시"
+                    secondary="동기 방식 선택 시 각 기사의 처리 상황, 카테고리 분류 결과, 예상 남은 시간 등을 실시간으로 확인할 수 있습니다."
                   />
                 </ListItem>
               </List>
@@ -601,8 +726,8 @@ const RelevancePage = () => {
       </Grid>
       
       <LoadingOverlay
-        open={loading}
-        message={`뉴스 기사의 관련성을 평가 중입니다. ${analysisMode === 'sync' ? '기사 수에 따라 최대 수 분이 소요될 수 있습니다...' : '백그라운드에서 처리 중이며, 완료되면 자동으로 알림을 받습니다...'}`}
+        open={loading && !showProgress}
+        message="분석을 준비하고 있습니다..."
       />
     </Box>
   );

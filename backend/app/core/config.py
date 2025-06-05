@@ -44,5 +44,20 @@ class Settings:
     DEFAULT_NEWS_COUNT: int = 100
     DEFAULT_NEWS_SORT: str = "date"  # date(최신순) 또는 sim(정확도순)
     DEFAULT_NEWS_DAYS: int = 30  # 최근 30일 뉴스
+    
+    def __init__(self):
+        """필요한 디렉토리들을 생성"""
+        self._ensure_directories()
+    
+    def _ensure_directories(self):
+        """필요한 디렉토리들이 존재하지 않으면 생성"""
+        directories = [
+            self.RESULTS_PATH,
+            self.CRAWLING_RESULTS_PATH,
+            self.RELEVANCE_RESULTS_PATH
+        ]
+        
+        for directory in directories:
+            os.makedirs(directory, exist_ok=True)
 
 settings = Settings()

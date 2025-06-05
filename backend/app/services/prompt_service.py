@@ -15,10 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class PromptService:
-    """
-    프롬프트 템플릿 관리 서비스
-    JSON 파일 기반으로 프롬프트를 저장하고 관리합니다.
-    """
+    """통합 프롬프트 템플릿 관리 서비스"""
     
     def __init__(self):
         self.prompts_file = os.path.join(settings.RESULTS_PATH, "prompts.json")
@@ -37,37 +34,56 @@ class PromptService:
         try:
             prompts = self.get_all_prompts()
             if not prompts:
-                # 기본 프롬프트 생성
-                default_prompt = PromptCreateRequest(
-                    name="코스맥스 뉴스 관련성 분석 (기본)",
-                    description="코스맥스 관련 뉴스 기사의 관련성을 분석하는 기본 프롬프트입니다.",
-                    batch_prompt="""코스맥스 뉴스 관련성 분석. 각 기사를 다음 기준으로 분류:
-
-1=자사언급: 코스맥스 직접 언급
-2=업계관련: 화장품/뷰티 업계 동향, 경쟁사, 기술, 규제
-3=건기식펫푸드: 건강기능식품, 펫푸드 관련
-4=기타: 관련성 낮음
-
-JSON 배열로 응답:
-[{{"id":1,"relevant":true,"category":"자사언급","confidence":0.9,"reason":"간단한이유"}}]
-
-기사들:
-{articles}""",
-                    single_prompt="""코스맥스 관련성 분석.
-
-분류: 1=자사언급, 2=업계관련, 3=건기식펫푸드, 4=기타
-
-JSON 응답:
-{{"relevant":true,"category":"분류","confidence":0.8,"reason":"이유"}}
-
-제목: {title}
-내용: {content}""",
-                    system_message="JSON 형식으로만 응답하세요."
-                )
-                self.create_prompt(default_prompt)
+                self._create_default_prompts()
                 logger.info("기본 프롬프트 템플릿이 생성되었습니다.")
         except Exception as e:
             logger.error(f"기본 프롬프트 로드 중 오류: {str(e)}")
+
+    def _create_default_prompts(self):
+        """기본 프롬프트 생성"""
+        # 네이버 뉴스 스크랩 전문가 프롬프트
+        news_scraping_prompt = PromptCreateRequest(
+            name="네이버 뉴스 스크랩 전문가",
+            description="네이버 뉴스 스크랩 업무 가이드에 기반한 프롬프트",
+            role_definition="당신은 코스맥스의 전문 뉴스 큐레이터입니다.",
+            detailed_instructions="""다음 기준에 따라 뉴스 기사를 분류하세요:
+1. 자사언급기사: 코스맥스, 코스맥스엔비티 직접 언급
+2. 업계관련기사: 화장품/뷰티 업계 관련
+3. 건기식펫푸드관련기사: 건강기능식품, 펫푸드 관련
+4. 기타: 위 범주에 해당하지 않는 내용""",
+            few_shot_examples="""예시:
+"코스맥스 신제품 출시" → 자사언급기사
+"K뷰티 해외 진출" → 업계관련기사
+"펫푸드 시장 성장" → 건기식펫푸드관련기사""",
+            cot_process="1. 키워드 확인 2. 카테고리 매칭 3. 관련성 점수 계산 4. 최적 카테고리 선택",
+            base_prompt="""다음 JSON 형식으로 응답하세요:
+{{"category": "분류명", "confidence": 0.0-1.0, "keywords": ["키워드"]}}
+
+제목: {title}
+내용: {content}""",
+            system_message="정확한 JSON 형식으로만 응답하세요."
+        )
+        
+        # 간단한 분류 프롬프트
+        simple_prompt = PromptCreateRequest(
+            name="간단 뉴스 분류기",
+            description="빠른 분류를 위한 간소화된 프롬프트",
+            role_definition="당신은 뉴스 분류 전문가입니다.",
+            detailed_instructions="4개 카테고리로 빠르게 분류하세요.",
+            few_shot_examples="간단한 예시들",
+            cot_process="빠른 분류 과정",
+            base_prompt="기사를 분류하세요: {title} - {content}",
+            system_message="간단하고 정확한 JSON으로 응답하세요."
+        )
+        
+        # 프롬프트들 생성
+        self.create_prompt(news_scraping_prompt)
+        self.create_prompt(simple_prompt)
+        
+        # 첫 번째 프롬프트를 활성화
+        prompts = self.get_all_prompts()
+        if prompts:
+            self.activate_prompt(prompts[0].id)
     
     def _load_prompts(self) -> List[Dict[str, Any]]:
         """JSON 파일에서 프롬프트 목록 로드"""
@@ -139,7 +155,6 @@ JSON 응답:
         try:
             prompts_data = self._load_prompts()
             
-            # 새 프롬프트 생성
             prompt_id = str(uuid.uuid4())
             now = datetime.now()
             
@@ -147,10 +162,13 @@ JSON 응답:
                 "id": prompt_id,
                 "name": request.name,
                 "description": request.description,
-                "batch_prompt": request.batch_prompt,
-                "single_prompt": request.single_prompt,
-                "system_message": request.system_message or "JSON 형식으로만 응답하세요.",
-                "is_active": False,  # 새로 생성된 프롬프트는 기본적으로 비활성
+                "role_definition": request.role_definition,
+                "detailed_instructions": request.detailed_instructions,
+                "few_shot_examples": request.few_shot_examples,
+                "cot_process": request.cot_process,
+                "base_prompt": request.base_prompt,
+                "system_message": request.system_message or "정확한 JSON 형식으로만 응답하세요.",
+                "is_active": False,
                 "created_at": now.isoformat(),
                 "updated_at": now.isoformat()
             }
@@ -178,14 +196,19 @@ JSON 응답:
                         prompt_data["name"] = request.name
                     if request.description is not None:
                         prompt_data["description"] = request.description
-                    if request.batch_prompt is not None:
-                        prompt_data["batch_prompt"] = request.batch_prompt
-                    if request.single_prompt is not None:
-                        prompt_data["single_prompt"] = request.single_prompt
+                    if request.role_definition is not None:
+                        prompt_data["role_definition"] = request.role_definition
+                    if request.detailed_instructions is not None:
+                        prompt_data["detailed_instructions"] = request.detailed_instructions
+                    if request.few_shot_examples is not None:
+                        prompt_data["few_shot_examples"] = request.few_shot_examples
+                    if request.cot_process is not None:
+                        prompt_data["cot_process"] = request.cot_process
+                    if request.base_prompt is not None:
+                        prompt_data["base_prompt"] = request.base_prompt
                     if request.system_message is not None:
                         prompt_data["system_message"] = request.system_message
                     if request.is_active is not None:
-                        # 새로운 프롬프트를 활성화하는 경우, 다른 프롬프트들은 비활성화
                         if request.is_active:
                             for other_prompt in prompts_data:
                                 other_prompt["is_active"] = False
@@ -198,7 +221,7 @@ JSON 응답:
                     else:
                         return None
             
-            return None  # 프롬프트를 찾지 못함
+            return None
             
         except Exception as e:
             logger.error(f"프롬프트 수정 실패: {str(e)}")
@@ -214,14 +237,14 @@ JSON 응답:
                     prompts_data.pop(i)
                     return self._save_prompts(prompts_data)
             
-            return False  # 프롬프트를 찾지 못함
+            return False
             
         except Exception as e:
             logger.error(f"프롬프트 삭제 실패: {str(e)}")
             return False
     
     def activate_prompt(self, prompt_id: str) -> bool:
-        """특정 프롬프트를 활성화 (다른 프롬프트들은 비활성화)"""
+        """특정 프롬프트를 활성화"""
         try:
             prompts_data = self._load_prompts()
             found = False
@@ -243,24 +266,35 @@ JSON 응답:
             logger.error(f"프롬프트 활성화 실패: {str(e)}")
             return False
     
-    def duplicate_prompt(self, prompt_id: str, new_name: Optional[str] = None) -> Optional[PromptTemplate]:
-        """프롬프트 템플릿 복제"""
+    def get_compiled_prompt(self, prompt_id: str, title: str = "", content: str = "") -> Optional[str]:
+        """통합 프롬프트를 컴파일하여 실제 사용할 프롬프트 생성"""
         try:
-            original_prompt = self.get_prompt_by_id(prompt_id)
-            if not original_prompt:
+            prompt = self.get_prompt_by_id(prompt_id)
+            if not prompt:
                 return None
             
-            # 복제 요청 생성
-            duplicate_request = PromptCreateRequest(
-                name=new_name or f"{original_prompt.name} (복사본)",
-                description=f"복사본: {original_prompt.description}" if original_prompt.description else None,
-                batch_prompt=original_prompt.batch_prompt,
-                single_prompt=original_prompt.single_prompt,
-                system_message=original_prompt.system_message
-            )
+            # 각 구성 요소를 조합하여 완전한 프롬프트 생성
+            compiled_prompt = f"""## 역할 정의
+{prompt.role_definition}
+
+## 상세 지침
+{prompt.detailed_instructions}
+
+## Few-shot 예시
+{prompt.few_shot_examples}
+
+## 단계별 사고 과정
+{prompt.cot_process}
+
+## 기본 프롬프트
+{prompt.base_prompt}"""
             
-            return self.create_prompt(duplicate_request)
+            # 제목과 내용이 제공된 경우 포맷팅
+            if title or content:
+                compiled_prompt = compiled_prompt.format(title=title, content=content)
+            
+            return compiled_prompt
             
         except Exception as e:
-            logger.error(f"프롬프트 복제 실패: {str(e)}")
+            logger.error(f"프롬프트 컴파일 실패: {str(e)}")
             return None

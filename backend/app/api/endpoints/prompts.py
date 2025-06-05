@@ -25,7 +25,7 @@ prompt_service = PromptService()
 @router.get("/", response_model=PromptListResponse)
 async def get_all_prompts():
     """
-    모든 프롬프트 템플릿 조회
+    모든 통합 프롬프트 템플릿 조회
     """
     try:
         prompts = prompt_service.get_all_prompts()
@@ -41,7 +41,7 @@ async def get_all_prompts():
 @router.get("/active", response_model=PromptResponse)
 async def get_active_prompt():
     """
-    현재 활성화된 프롬프트 템플릿 조회
+    현재 활성화된 통합 프롬프트 템플릿 조회
     """
     try:
         prompt = prompt_service.get_active_prompt()
@@ -65,7 +65,7 @@ async def get_active_prompt():
 @router.get("/{prompt_id}", response_model=PromptResponse)
 async def get_prompt_by_id(prompt_id: str):
     """
-    ID로 특정 프롬프트 템플릿 조회
+    ID로 특정 통합 프롬프트 템플릿 조회
     """
     try:
         prompt = prompt_service.get_prompt_by_id(prompt_id)
@@ -89,7 +89,7 @@ async def get_prompt_by_id(prompt_id: str):
 @router.post("/", response_model=PromptResponse)
 async def create_prompt(request: PromptCreateRequest):
     """
-    새 프롬프트 템플릿 생성
+    새 통합 프롬프트 템플릿 생성
     """
     try:
         prompt = prompt_service.create_prompt(request)
@@ -113,7 +113,7 @@ async def create_prompt(request: PromptCreateRequest):
 @router.put("/{prompt_id}", response_model=PromptResponse)
 async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
     """
-    프롬프트 템플릿 수정
+    통합 프롬프트 템플릿 수정
     """
     try:
         prompt = prompt_service.update_prompt(prompt_id, request)
@@ -186,7 +186,7 @@ async def activate_prompt(prompt_id: str):
 @router.post("/duplicate/{prompt_id}", response_model=PromptResponse)
 async def duplicate_prompt(prompt_id: str, new_name: Optional[str] = Query(None)):
     """
-    프롬프트 템플릿 복제
+    통합 프롬프트 템플릿 복제
     """
     try:
         prompt = prompt_service.duplicate_prompt(prompt_id, new_name)
@@ -212,31 +212,50 @@ async def preview_prompt(prompt_id: str,
                         sample_title: str = Query("샘플 제목"), 
                         sample_content: str = Query("샘플 내용")):
     """
-    프롬프트 미리보기 - 샘플 데이터로 실제 프롬프트가 어떻게 생성되는지 확인
+    통합 프롬프트 미리보기 - 샘플 데이터로 실제 프롬프트가 어떻게 생성되는지 확인
     """
     try:
         prompt = prompt_service.get_prompt_by_id(prompt_id)
         if not prompt:
             raise HTTPException(status_code=404, detail="프롬프트를 찾을 수 없습니다.")
         
-        # 단일 프롬프트 미리보기
-        single_preview = prompt.single_prompt.format(
-            title=sample_title,
-            content=sample_content
-        )
-        
-        # 배치 프롬프트 미리보기 (샘플 기사 1개)
-        sample_articles = f"1. 제목:{sample_title} 내용:{sample_content}"
-        batch_preview = prompt.batch_prompt.format(articles=sample_articles)
+        # 통합 프롬프트 컴파일 및 미리보기
+        compiled_prompt = prompt_service.get_compiled_prompt(prompt_id, sample_title, sample_content)
         
         return {
             "success": True,
             "prompt_name": prompt.name,
             "system_message": prompt.system_message,
-            "single_prompt_preview": single_preview,
-            "batch_prompt_preview": batch_preview
+            "role_definition": prompt.role_definition,
+            "detailed_instructions": prompt.detailed_instructions,
+            "few_shot_examples": prompt.few_shot_examples,
+            "cot_process": prompt.cot_process,
+            "base_prompt": prompt.base_prompt,
+            "compiled_prompt_preview": compiled_prompt
         }
         
     except Exception as e:
         logger.error(f"프롬프트 미리보기 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=f"프롬프트 미리보기 중 오류가 발생했습니다: {str(e)}")
+
+
+@router.get("/compile/{prompt_id}")
+async def compile_prompt(prompt_id: str, 
+                        title: str = Query(""), 
+                        content: str = Query("")):
+    """
+    통합 프롬프트를 컴파일하여 실제 사용할 프롬프트 생성
+    """
+    try:
+        compiled_prompt = prompt_service.get_compiled_prompt(prompt_id, title, content)
+        if not compiled_prompt:
+            raise HTTPException(status_code=404, detail="프롬프트를 찾을 수 없습니다.")
+        
+        return {
+            "success": True,
+            "compiled_prompt": compiled_prompt
+        }
+        
+    except Exception as e:
+        logger.error(f"프롬프트 컴파일 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"프롬프트 컴파일 중 오류가 발생했습니다: {str(e)}")

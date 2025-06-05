@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from typing import List, Dict, Any, Optional
-import logging
-import os
-import pandas as pd
-import datetime
+"""
+개선된 관련성 분석 API 엔드포인트
+"""
 
+import logging
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from app.models.schemas import RelevanceRequest, RelevanceResponse
-from app.services.relevance_service import RelevanceService
+from app.services.news_analysis_service import news_analysis_service
 from app.services.prompt_service import PromptService
-from app.core.config import settings
+from app.common.progress import progress_tracker
+from app.common.responses import ResponseFormatter, create_progress_response
+from app.common.exceptions import NewsSearchException
 
 logger = logging.getLogger(__name__)
 
@@ -23,299 +24,215 @@ router = APIRouter(
 
 prompt_service = PromptService()
 
-@router.post("/analyze", response_model=RelevanceResponse)
-async def analyze_relevance(
-    request: RelevanceRequest,
-    background_tasks: BackgroundTasks
-):
-    """
-    뉴스 기사 관련성 분석 - 단순화된 버전 (백그라운드 처리)
-    """
-    logger.info(f"Analyzing relevance for file: {request.file_path}")
+
+@router.post("/analyze-sync", response_model=RelevanceResponse)
+async def analyze_relevance_sync(request: RelevanceRequest):
+    """뉴스 기사 관련성 분석 - 동기 방식"""
+    logger.info(f"관련성 분석 시작: {request.file_path}, 모델: {request.model}")
     
     try:
-        # 파일 경로 확인 (크롤링 결과는 crawling 폴더에 있음)
-        if os.path.exists(os.path.join(settings.CRAWLING_RESULTS_PATH, request.file_path)):
-            file_path = os.path.join(settings.CRAWLING_RESULTS_PATH, request.file_path)
-        else:
-            file_path = os.path.join(settings.RESULTS_PATH, request.file_path)
-        
-        if not os.path.exists(file_path):
-            return RelevanceResponse(
-                success=False,
-                message=f"파일을 찾을 수 없습니다: {request.file_path}",
-                errors={"file_error": "File not found"}
-            )
-        
-        # RelevanceService 인스턴스 생성
-        relevance_service = RelevanceService()
-        
-        # 프롬프트 템플릿 설정
+        # 프롬프트 템플릿 가져오기
         prompt_template = None
         if request.prompt_id:
             prompt_template = prompt_service.get_prompt_by_id(request.prompt_id)
             if not prompt_template:
-                return RelevanceResponse(
-                    success=False,
-                    message=f"해당 ID의 프롬프트를 찾을 수 없습니다: {request.prompt_id}",
-                    errors={"prompt_error": "Prompt not found"}
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"프롬프트를 찾을 수 없습니다: {request.prompt_id}"
                 )
         else:
-            # 기본 활성 프롬프트 사용
             prompt_template = prompt_service.get_active_prompt()
         
-        # 파일 로드
-        news_data = relevance_service.load_news_file(file_path)
+        # 분석 수행
+        result_path, stats = news_analysis_service.analyze_news_batch(
+            file_path=request.file_path,
+            api_key=request.api_key,
+            model=request.model,
+            prompt_template=prompt_template,
+            session_id="current_analysis"
+        )
         
-        if not news_data:
-            return RelevanceResponse(
-                success=False,
-                message="파일에서 뉴스 데이터를 읽을 수 없습니다.",
-                errors={"data_error": "No news data found"}
-            )
-        
-        # 백그라운드에서 분석 수행
-        def perform_analysis():
-            try:
-                # 단순화된 분석 수행
-                analyzed_data, stats = relevance_service.analyze_news_simple(
-                    news_data, 
-                    request.api_key, 
-                    request.model,
-                    prompt_template
-                )
-                
-                # 결과 파일 생성
-                file_name = os.path.basename(file_path)
-                base_name, ext = os.path.splitext(file_name)
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                result_file_name = f"{base_name}_analyzed_{timestamp}{ext}"
-                
-                # 분석 결과 저장 (relevance 폴더에 저장)
-                success = relevance_service.save_analyzed_results(
-                    analyzed_data, 
-                    result_file_name,  # 파일명만 전달
-                    use_relevance_folder=True
-                )
-                
-                if success:
-                    logger.info(f"관련성 분석 완료: {result_file_name}")
-                else:
-                    logger.error(f"분석 결과 저장 실패: {result_file_name}")
-                    
-            except Exception as e:
-                logger.error(f"백그라운드 분석 중 오류: {str(e)}")
-        
-        # 백그라운드에서 분석 수행
-        background_tasks.add_task(perform_analysis)
-        
-        # 즉시 응답 반환 (분석은 백그라운드에서 진행)
         return RelevanceResponse(
             success=True,
-            message=f"{len(news_data)}개 뉴스 항목의 관련성 분석을 시작했습니다. 분석은 백그라운드에서 진행되며, 완료되면 결과 파일이 생성됩니다.",
-            file_path=None,  # 분석 진행 중이므로 아직 파일 없음
+            message=f"{stats['total_items']}개 뉴스 항목의 관련성 분석이 완료되었습니다. "
+                   f"관련 기사: {stats['relevant_items']}개 ({stats['relevant_percent']}%)",
+            file_path=result_path,
+            stats=stats,
+            session_id="current_analysis"
+        )
+        
+    except NewsSearchException as e:
+        logger.error(f"관련성 분석 실패: {e.message}")
+        return RelevanceResponse(
+            success=False,
+            message=e.message,
+            errors={"error_code": e.error_code}
+        )
+    except Exception as e:
+        logger.error(f"예기치 못한 오류: {str(e)}")
+        return RelevanceResponse(
+            success=False,
+            message=f"관련성 분석 중 오류가 발생했습니다: {str(e)}",
+            errors={"analysis_error": str(e)}
+        )
+
+
+@router.post("/analyze", response_model=RelevanceResponse)
+async def analyze_relevance_background(
+    request: RelevanceRequest,
+    background_tasks: BackgroundTasks
+):
+    """뉴스 기사 관련성 분석 - 백그라운드 처리"""
+    logger.info(f"백그라운드 관련성 분석 시작: {request.file_path}")
+    
+    try:
+        # 프롬프트 템플릿 가져오기
+        prompt_template = None
+        if request.prompt_id:
+            prompt_template = prompt_service.get_prompt_by_id(request.prompt_id)
+        else:
+            prompt_template = prompt_service.get_active_prompt()
+        
+        # 파일 기본 검증 (데이터 로드)
+        from app.services.file_service import file_service
+        news_data = file_service.load_news_data(request.file_path)
+        
+        # 백그라운드 작업 추가
+        def perform_background_analysis():
+            try:
+                news_analysis_service.analyze_news_batch(
+                    file_path=request.file_path,
+                    api_key=request.api_key,
+                    model=request.model,
+                    prompt_template=prompt_template,
+                    session_id="background_analysis"
+                )
+                logger.info("백그라운드 분석 완료")
+            except Exception as e:
+                logger.error(f"백그라운드 분석 실패: {str(e)}")
+        
+        background_tasks.add_task(perform_background_analysis)
+        
+        return RelevanceResponse(
+            success=True,
+            message=f"{len(news_data)}개 뉴스 항목의 관련성 분석을 시작했습니다. "
+                   f"백그라운드에서 진행되며, 완료되면 결과 파일이 생성됩니다.",
+            file_path=None,
             stats={
                 "total_items": len(news_data),
                 "status": "processing",
                 "message": "분석 진행 중"
-            }
+            },
+            session_id="background_analysis"
         )
-    
-    except Exception as e:
-        logger.error(f"Error analyzing relevance: {str(e)}")
+        
+    except NewsSearchException as e:
+        logger.error(f"백그라운드 분석 시작 실패: {e.message}")
         return RelevanceResponse(
             success=False,
-            message=f"관련성 분석 중 오류가 발생했습니다: {str(e)}",
-            errors={"analysis_error": str(e)}
+            message=e.message,
+            errors={"error_code": e.error_code}
+        )
+    except Exception as e:
+        logger.error(f"예기치 못한 오류: {str(e)}")
+        return RelevanceResponse(
+            success=False,
+            message=f"분석 시작 중 오류가 발생했습니다: {str(e)}",
+            errors={"startup_error": str(e)}
         )
 
 
-@router.post("/analyze-sync", response_model=RelevanceResponse)
-async def analyze_relevance_sync(
-    request: RelevanceRequest
-):
-    """
-    뉴스 기사 관련성 분석 - 동기 방식 (즉시 결과 반환)
-    """
-    logger.info(f"Analyzing relevance synchronously for file: {request.file_path}")
-    
+@router.get("/progress/{session_id}")
+async def get_analysis_progress(session_id: str):
+    """분석 진행 상황 조회"""
     try:
-        # 파일 경로 확인 (크롤링 결과는 crawling 폴더에 있음)
-        if os.path.exists(os.path.join(settings.CRAWLING_RESULTS_PATH, request.file_path)):
-            file_path = os.path.join(settings.CRAWLING_RESULTS_PATH, request.file_path)
-        else:
-            file_path = os.path.join(settings.RESULTS_PATH, request.file_path)
+        progress_data = progress_tracker.get_progress(session_id)
         
-        if not os.path.exists(file_path):
-            return RelevanceResponse(
-                success=False,
-                message=f"파일을 찾을 수 없습니다: {request.file_path}",
-                errors={"file_error": "File not found"}
-            )
-        
-        # RelevanceService 인스턴스 생성
-        relevance_service = RelevanceService()
-        
-        # 프롬프트 템플릿 설정
-        prompt_template = None
-        if request.prompt_id:
-            prompt_template = prompt_service.get_prompt_by_id(request.prompt_id)
-            if not prompt_template:
-                return RelevanceResponse(
-                    success=False,
-                    message=f"해당 ID의 프롬프트를 찾을 수 없습니다: {request.prompt_id}",
-                    errors={"prompt_error": "Prompt not found"}
-                )
-        else:
-            # 기본 활성 프롬프트 사용
-            prompt_template = prompt_service.get_active_prompt()
-        
-        # 파일 로드
-        news_data = relevance_service.load_news_file(file_path)
-        
-        if not news_data:
-            return RelevanceResponse(
-                success=False,
-                message="파일에서 뉴스 데이터를 읽을 수 없습니다.",
-                errors={"data_error": "No news data found"}
-            )
-        
-        # 단순화된 분석 수행
-        analyzed_data, stats = relevance_service.analyze_news_simple(
-            news_data, 
-            request.api_key, 
-            request.model,
-            prompt_template
+        return ResponseFormatter.success(
+            message="진행 상황 조회 성공",
+            data={"progress": progress_data}
         )
         
-        # 결과 파일 생성
-        file_name = os.path.basename(file_path)
-        base_name, ext = os.path.splitext(file_name)
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        result_file_name = f"{base_name}_analyzed_{timestamp}{ext}"
-        
-        # 분석 결과 저장 (relevance 폴더에 저장)
-        success = relevance_service.save_analyzed_results(
-            analyzed_data, 
-            result_file_name,  # 파일명만 전달
-            use_relevance_folder=True
-        )
-        
-        if not success:
-            return RelevanceResponse(
-                success=False,
-                message="분석 결과 저장에 실패했습니다.",
-                errors={"save_error": "Failed to save analysis results"}
-            )
-        
-        return RelevanceResponse(
-            success=True,
-            message=f"{stats['total_items']}개 뉴스 항목의 관련성 분석이 완료되었습니다. 관련 기사: {stats['relevant_items']}개 ({stats['relevant_percent']}%)",
-            file_path=result_file_name,
-            stats=stats
-        )
-    
     except Exception as e:
-        logger.error(f"Error analyzing relevance synchronously: {str(e)}")
-        return RelevanceResponse(
-            success=False,
-            message=f"관련성 분석 중 오류가 발생했습니다: {str(e)}",
-            errors={"analysis_error": str(e)}
+        logger.error(f"진행 상황 조회 실패: {str(e)}")
+        return ResponseFormatter.error(
+            message=f"진행 상황 조회 중 오류가 발생했습니다: {str(e)}",
+            details={"progress": create_progress_response(0, 0, "오류 발생")}
         )
 
 
 @router.get("/status/{file_name}")
 async def get_analysis_status(file_name: str):
-    """
-    분석 상태 확인 (분석된 파일이 존재하는지 확인)
-    """
+    """분석 상태 확인"""
     try:
+        from app.services.file_service import file_service
+        
         # relevance 폴더에서 분석된 파일 확인
-        results_dir = settings.RELEVANCE_RESULTS_PATH
-        analyzed_files = []
+        analyzed_files = file_service.get_file_list("relevance")
         
-        if os.path.exists(results_dir):
-            for file in os.listdir(results_dir):
-                if file.startswith(file_name.replace('.csv', '').replace('.xlsx', '')) and '_analyzed_' in file:
-                    file_path = os.path.join(results_dir, file)
-                    file_stats = os.stat(file_path)
-                    analyzed_files.append({
-                        "file_name": file,
-                        "created_at": datetime.datetime.fromtimestamp(file_stats.st_ctime).strftime("%Y-%m-%d %H:%M:%S"),
-                        "size": file_stats.st_size
-                    })
+        # 해당 파일명으로 시작하는 분석된 파일 찾기
+        base_name = file_name.replace('.csv', '').replace('.xlsx', '')
+        matching_files = [
+            f for f in analyzed_files 
+            if f["name"].startswith(base_name) and "_analyzed_" in f["name"]
+        ]
         
-        if analyzed_files:
-            # 가장 최근 파일 반환
-            latest_file = max(analyzed_files, key=lambda x: x["created_at"])
-            return {
-                "status": "completed",
-                "message": "분석이 완료되었습니다.",
-                "file": latest_file,
-                "all_files": analyzed_files
-            }
+        if matching_files:
+            latest_file = matching_files[0]  # 이미 최신순으로 정렬됨
+            return ResponseFormatter.success(
+                message="분석이 완료되었습니다.",
+                data={
+                    "status": "completed",
+                    "file": latest_file,
+                    "all_files": matching_files
+                }
+            )
         else:
-            return {
-                "status": "processing",
-                "message": "분석이 진행 중이거나 아직 시작되지 않았습니다.",
-                "file": None
-            }
-    
+            return ResponseFormatter.success(
+                message="분석이 진행 중이거나 아직 시작되지 않았습니다.",
+                data={
+                    "status": "processing",
+                    "file": None
+                }
+            )
+            
     except Exception as e:
-        logger.error(f"Error checking analysis status: {str(e)}")
-        return {
-            "status": "error",
-            "message": f"상태 확인 중 오류가 발생했습니다: {str(e)}",
-            "file": None
-        }
+        logger.error(f"분석 상태 확인 실패: {str(e)}")
+        return ResponseFormatter.error(
+            message=f"상태 확인 중 오류가 발생했습니다: {str(e)}",
+            details={"status": "error"}
+        )
 
 
-@router.post("/clean-columns/{file_name}")
-async def clean_file_columns(file_name: str):
-    """
-    기존 파일의 중복 컬럼 정리
-    """
+@router.post("/initialize-progress")
+async def initialize_progress(request: RelevanceRequest):
+    """분석 시작 전 진행 상황 초기화"""
     try:
-        # 파일 경로 확인 (relevance 폴더 먼저 확인)
-        file_path = None
-        if os.path.exists(os.path.join(settings.RELEVANCE_RESULTS_PATH, file_name)):
-            file_path = os.path.join(settings.RELEVANCE_RESULTS_PATH, file_name)
-        elif os.path.exists(os.path.join(settings.CRAWLING_RESULTS_PATH, file_name)):
-            file_path = os.path.join(settings.CRAWLING_RESULTS_PATH, file_name)
-        elif os.path.exists(os.path.join(settings.RESULTS_PATH, file_name)):
-            file_path = os.path.join(settings.RESULTS_PATH, file_name)
+        from app.services.file_service import file_service
         
-        if not file_path:
-            return {
-                "success": False,
-                "message": f"파일을 찾을 수 없습니다: {file_name}",
-                "errors": {"file_error": "File not found"}
+        # 파일 로드하여 전체 항목 수 확인
+        news_data = file_service.load_news_data(request.file_path)
+        
+        session_id = "current_analysis"
+        
+        # 진행 상황 초기화
+        progress_tracker.update_progress(
+            session_id, 0, len(news_data), '분석 준비 완료', '',
+            {'total_items': len(news_data), 'relevant_items': 0, 'irrelevant_items': 0, 'errors': 0, 'processing_rate': 0}
+        )
+        
+        return ResponseFormatter.success(
+            message="진행 상황 초기화 완료",
+            data={
+                "session_id": session_id,
+                "total_items": len(news_data)
             }
+        )
         
-        # RelevanceService 인스턴스 생성
-        relevance_service = RelevanceService()
-        
-        # 파일 정리 수행
-        success = relevance_service.clean_existing_file(file_path)
-        
-        if success:
-            return {
-                "success": True,
-                "message": f"파일 정리가 완료되었습니다: {file_name}",
-                "file_path": file_path,
-                "backup_created": True
-            }
-        else:
-            return {
-                "success": False,
-                "message": f"파일 정리에 실패했습니다: {file_name}",
-                "errors": {"clean_error": "Failed to clean file columns"}
-            }
-    
+    except NewsSearchException as e:
+        return ResponseFormatter.from_exception(e)
     except Exception as e:
-        logger.error(f"Error cleaning file columns: {str(e)}")
-        return {
-            "success": False,
-            "message": f"파일 정리 중 오류가 발생했습니다: {str(e)}",
-            "errors": {"clean_error": str(e)}
-        }
+        logger.error(f"진행 상황 초기화 실패: {str(e)}")
+        return ResponseFormatter.error(
+            message=f"진행 상황 초기화 중 오류가 발생했습니다: {str(e)}"
+        )

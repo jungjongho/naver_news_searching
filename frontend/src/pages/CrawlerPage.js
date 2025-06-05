@@ -21,6 +21,9 @@ import {
   ListItemText,
   IconButton,
   Divider,
+  FormControlLabel,
+  Radio,
+  RadioGroup,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 // import DeleteIcon from '@mui/icons-material/Delete';
@@ -57,6 +60,12 @@ const CrawlerPage = () => {
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ open: false, type: 'info', message: '' });
   const [savedKeywords, setSavedKeywords] = useState([]);
+  
+  // 날짜 필터링 상태
+  const [dateFilterType, setDateFilterType] = useState('days'); // 'days' 또는 'range'
+  const [days, setDays] = useState(30);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
 
   // 저장된 키워드 로드
   useEffect(() => {
@@ -72,6 +81,17 @@ const CrawlerPage = () => {
     // 마지막으로 사용한 최대 뉴스 수 로드
     const lastMaxNews = storage.get('lastMaxNews', 100);
     setMaxNewsPerKeyword(lastMaxNews);
+    
+    // 마지막으로 사용한 날짜 설정 로드
+    const lastDateFilterType = storage.get('lastDateFilterType', 'days');
+    const lastDays = storage.get('lastDays', 30);
+    const lastStartDate = storage.get('lastStartDate', '');
+    const lastEndDate = storage.get('lastEndDate', '');
+    
+    setDateFilterType(lastDateFilterType);
+    setDays(lastDays);
+    setStartDate(lastStartDate);
+    setEndDate(lastEndDate);
   }, []);
 
   // 키워드 추가
@@ -170,17 +190,59 @@ const CrawlerPage = () => {
       return;
     }
     
+    // 날짜 범위 검증
+    if (dateFilterType === 'range') {
+      if (!startDate || !endDate) {
+        setAlert({
+          open: true,
+          type: 'error',
+          message: '날짜 범위를 선택할 때는 시작 날짜와 종료 날짜를 모두 입력해주세요.',
+        });
+        return;
+      }
+      
+      if (new Date(startDate) > new Date(endDate)) {
+        setAlert({
+          open: true,
+          type: 'error',
+          message: '시작 날짜는 종료 날짜보다 이전이어야 합니다.',
+        });
+        return;
+      }
+    }
+    
     // 최대 뉴스 수가 유효하지 않으면 기본값으로 설정
     const finalMaxNews = maxNewsPerKeyword === '' || maxNewsPerKeyword < 1 ? 100 : maxNewsPerKeyword;
     
     // 설정 저장
     storage.set('lastKeywords', keywords);
     storage.set('lastMaxNews', finalMaxNews);
+    storage.set('lastDateFilterType', dateFilterType);
+    storage.set('lastDays', days);
+    storage.set('lastStartDate', startDate);
+    storage.set('lastEndDate', endDate);
     
     setLoading(true);
     
     try {
-      const result = await crawlerService.crawlNews(keywords, finalMaxNews);
+      let result;
+      if (dateFilterType === 'range') {
+        result = await crawlerService.crawlNews(
+          keywords, 
+          finalMaxNews, 
+          'date', 
+          30, // days는 사용되지 않지만 기본값 전달
+          startDate, 
+          endDate
+        );
+      } else {
+        result = await crawlerService.crawlNews(
+          keywords, 
+          finalMaxNews, 
+          'date', 
+          days
+        );
+      }
       
       if (result.success) {
         // 다운로드 폴더 저장 여부에 따라 메시지 다르게 표시
@@ -373,6 +435,100 @@ const CrawlerPage = () => {
             
             <Divider sx={{ mb: 3 }} />
             
+            <Box sx={{ mb: 4 }}>
+              <Typography variant="subtitle1" gutterBottom>
+                날짜 필터링
+              </Typography>
+              
+              <FormControl component="fieldset" sx={{ mb: 3 }}>
+                <RadioGroup
+                  value={dateFilterType}
+                  onChange={(e) => setDateFilterType(e.target.value)}
+                  row
+                >
+                  <FormControlLabel 
+                    value="days" 
+                    control={<Radio />} 
+                    label="최근 일수 지정" 
+                  />
+                  <FormControlLabel 
+                    value="range" 
+                    control={<Radio />} 
+                    label="날짜 범위 지정" 
+                  />
+                </RadioGroup>
+              </FormControl>
+              
+              {dateFilterType === 'days' ? (
+                <Box>
+                  <TextField
+                    fullWidth
+                    variant="outlined"
+                    type="number"
+                    label="최근 며 일"
+                    value={days}
+                    onChange={(e) => setDays(parseInt(e.target.value) || 1)}
+                    inputProps={{
+                      min: 1,
+                      max: 365,
+                      step: 1
+                    }}
+                    helperText="1부터 365일까지 설정 가능합니다."
+                    sx={{ mb: 2 }}
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    최근 {days}일 내의 뉴스를 검색합니다.
+                  </Typography>
+                </Box>
+              ) : (
+                <Box>
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        variant="outlined"
+                        type="date"
+                        label="시작 날짜"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        InputLabelProps={{
+                          shrink: true,
+                        }}
+                        inputProps={{
+                          max: new Date().toISOString().split('T')[0]
+                        }}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        variant="outlined"
+                        type="date"
+                        label="종료 날짜"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        InputLabelProps={{
+                          shrink: true,
+                        }}
+                        inputProps={{
+                          max: new Date().toISOString().split('T')[0],
+                          min: startDate || undefined
+                        }}
+                      />
+                    </Grid>
+                  </Grid>
+                  <Typography variant="body2" color="text.secondary">
+                    {startDate && endDate ? 
+                      `${startDate}부터 ${endDate}까지의 뉴스를 검색합니다.` :
+                      '시작 날짜와 종료 날짜를 모두 선택해주세요.'
+                    }
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            
+            <Divider sx={{ mb: 3 }} />
+            
             <Box sx={{ textAlign: 'center' }}>
               <Button
                 variant="contained"
@@ -386,6 +542,12 @@ const CrawlerPage = () => {
               </Button>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 총 {keywords.length}개 키워드, 최대 {keywords.length * displayMaxNews}개의 뉴스 기사를 수집합니다.
+                {dateFilterType === 'range' && startDate && endDate && 
+                  ` (${startDate} ~ ${endDate})`
+                }
+                {dateFilterType === 'days' && 
+                  ` (최근 ${days}일)`
+                }
               </Typography>
             </Box>
           </Paper>
@@ -458,6 +620,15 @@ const CrawlerPage = () => {
                   <ListItemText
                     primary="추천 카테고리"
                     secondary="미리 정의된 추천 카테고리를 사용하여 빠르게 키워드를 추가할 수 있습니다."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <HelpOutlineIcon color="primary" fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="날짜 필터링"
+                    secondary="최근 일수 또는 직접 날짜 범위를 지정하여 원하는 기간의 뉴스만 검색할 수 있습니다."
                   />
                 </ListItem>
                 <ListItem>
