@@ -215,7 +215,7 @@ const RelevancePage = () => {
       } catch (error) {
         console.error('진행 상황 확인 중 오류:', error);
       }
-    }, 1000); // 1초마다 확인 (더 빠르게)
+    }, 800); // 0.8초마다 확인 (더 빠르게)
     
     setProgressInterval(interval);
   };

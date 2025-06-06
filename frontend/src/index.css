@@ -30,3 +30,36 @@ code {
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
 }
+
+/* 다이얼로그 스크롤 안정화 */
+.MuiDialogContent-root {
+  scroll-behavior: smooth !important;
+  overscroll-behavior: contain;
+  position: relative;
+}
+
+/* 텍스트 필드 리렌더링 최적화 */
+.MuiTextField-root {
+  contain: layout style;
+}
+
+.MuiTextField-root .MuiInputBase-inputMultiline {
+  resize: vertical;
+  min-height: inherit;
+  will-change: auto;
+}
+
+/* 포커스 시 스크롤 점프 방지 */
+.MuiInputBase-root:focus-within,
+.MuiTextField-root:focus-within {
+  scroll-margin: 0 !important;
+  scroll-margin-top: 0 !important;
+  scroll-margin-bottom: 0 !important;
+}
+
+/* 탭 패널 안정성 */
+.MuiTabPanel-root {
+  position: relative;
+  overflow: visible;
+  contain: layout style;
+}

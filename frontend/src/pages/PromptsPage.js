@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Box, Typography, Button, Card, CardContent, CardActions, CardHeader,
   Grid, Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -13,6 +13,77 @@ import {
   Assignment as AssignmentIcon, AccountTree as TreeIcon, Code as CodeIcon
 } from '@mui/icons-material';
 import { promptService } from '../api/promptService';
+
+// 메모화된 TextField 컴포넌트 - 리렌더링 최소화
+const MemoizedTextField = React.memo(({ label, value, onChange, required, multiline, rows, ...props }) => {
+  const inputRef = useRef(null);
+  const [localValue, setLocalValue] = useState(value);
+  const debounceRef = useRef(null);
+  
+  // value prop이 변경될 때만 localValue 업데이트
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+  
+  const handleChange = useCallback((e) => {
+    const newValue = e.target.value;
+    setLocalValue(newValue); // 즉시 로컬 상태 업데이트
+    
+    // 부모 컴포넌트로의 전달은 디바운스
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    
+    debounceRef.current = setTimeout(() => {
+      onChange(newValue);
+    }, 300); // 300ms 디바운스
+  }, [onChange]);
+  
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, []);
+  
+  return (
+    <TextField
+      ref={inputRef}
+      label={label}
+      fullWidth
+      multiline={multiline}
+      rows={rows}
+      value={localValue}
+      onChange={handleChange}
+      required={required}
+      InputProps={{
+        style: { resize: 'vertical' },
+        sx: {
+          '& .MuiInputBase-input': {
+            scrollMargin: 0,
+            '&:focus': {
+              scrollMarginTop: 0,
+              scrollMarginBottom: 0
+            }
+          }
+        }
+      }}
+      sx={{
+        '& .MuiInputBase-root': {
+          scrollMargin: 0,
+          '&:focus-within': {
+            scrollMarginTop: 0,
+            scrollMarginBottom: 0
+          }
+        }
+      }}
+      {...props}
+    />
+  );
+});
+
+MemoizedTextField.displayName = 'MemoizedTextField';
 
 const PromptsPage = () => {
   const [prompts, setPrompts] = useState([]);
@@ -31,6 +102,9 @@ const PromptsPage = () => {
     few_shot_examples: '', cot_process: '', base_prompt: '',
     system_message: '정확한 JSON 형식으로만 응답하세요.'
   });
+  
+  // 스크롤 위치 저장을 위한 ref (예비용)
+  const dialogContentRef = useRef(null);
 
   const promptTemplates = {
     enhanced: {
@@ -59,7 +133,9 @@ const PromptsPage = () => {
     }
   };
 
-  useEffect(() => { loadPrompts(); }, []);
+  useEffect(() => { 
+    loadPrompts(); 
+  }, []);
 
   const loadPrompts = async () => {
     try {
@@ -81,6 +157,7 @@ const PromptsPage = () => {
   const handleOpenDialog = (mode, prompt = null) => {
     setDialogMode(mode);
     setCurrentTab(0);
+    
     if (mode === 'edit' && prompt) {
       setCurrentPrompt(prompt);
       setFormData({
@@ -109,6 +186,16 @@ const PromptsPage = () => {
       handleOpenDialog('create');
     }
   };
+  
+  // 폼 데이터 변경 핸들러 (단순화)
+  const handleFormDataChange = useCallback((field, value) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+  }, []);
+  
+  // 탭 변경 핸들러 (단순화)
+  const handleTabChange = useCallback((event, newValue) => {
+    setCurrentTab(newValue);
+  }, []);
 
   const handleSubmit = async () => {
     try {
@@ -299,18 +386,51 @@ const PromptsPage = () => {
       {/* 프롬프트 생성/수정 다이얼로그 */}
       <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="lg" fullWidth>
         <DialogTitle>{dialogMode === 'create' ? '새 통합 프롬프트 생성' : '통합 프롬프트 수정'}</DialogTitle>
-        <DialogContent>
-          <TextField label="프롬프트 이름" fullWidth margin="normal" value={formData.name} 
-                     onChange={(e) => setFormData(prev => ({...prev, name: e.target.value}))} required />
-          <TextField label="설명" fullWidth margin="normal" multiline rows={2} value={formData.description}
-                     onChange={(e) => setFormData(prev => ({...prev, description: e.target.value}))} />
-          <TextField label="시스템 메시지" fullWidth margin="normal" multiline rows={2} value={formData.system_message}
-                     onChange={(e) => setFormData(prev => ({...prev, system_message: e.target.value}))} />
+        <DialogContent 
+          ref={dialogContentRef} 
+          sx={{ 
+            position: 'relative',
+            '&::-webkit-scrollbar': {
+              width: '8px'
+            },
+            '&::-webkit-scrollbar-track': {
+              background: '#f1f1f1'
+            },
+            '&::-webkit-scrollbar-thumb': {
+              background: '#888',
+              borderRadius: '4px'
+            },
+            scrollBehavior: 'smooth',
+            overscrollBehavior: 'contain'
+          }}>
+          <MemoizedTextField 
+            label="프롬프트 이름" 
+            value={formData.name} 
+            onChange={(value) => handleFormDataChange('name', value)} 
+            required 
+            margin="normal"
+          />
+          <MemoizedTextField 
+            label="설명" 
+            value={formData.description}
+            onChange={(value) => handleFormDataChange('description', value)} 
+            multiline 
+            rows={2}
+            margin="normal"
+          />
+          <MemoizedTextField 
+            label="시스템 메시지" 
+            value={formData.system_message}
+            onChange={(value) => handleFormDataChange('system_message', value)} 
+            multiline 
+            rows={2}
+            margin="normal"
+          />
           
           <Divider sx={{ my: 3 }} />
           <Typography variant="h6" gutterBottom>통합 프롬프트 구성 요소</Typography>
           
-          <Tabs value={currentTab} onChange={(e, newValue) => setCurrentTab(newValue)}>
+          <Tabs value={currentTab} onChange={handleTabChange}>
             <Tab icon={<PersonIcon />} label="역할 정의" iconPosition="start" />
             <Tab icon={<AssignmentIcon />} label="상세 지침" iconPosition="start" />
             <Tab icon={<SchoolIcon />} label="Few-shot 예시" iconPosition="start" />
@@ -319,24 +439,51 @@ const PromptsPage = () => {
           </Tabs>
 
           <TabPanel value={currentTab} index={0}>
-            <TextField label="역할 정의" fullWidth multiline rows={8} value={formData.role_definition}
-                       onChange={(e) => setFormData(prev => ({...prev, role_definition: e.target.value}))} required />
+            <MemoizedTextField 
+              label="역할 정의" 
+              value={formData.role_definition}
+              onChange={(value) => handleFormDataChange('role_definition', value)} 
+              required 
+              multiline 
+              rows={8}
+            />
           </TabPanel>
           <TabPanel value={currentTab} index={1}>
-            <TextField label="상세 지침" fullWidth multiline rows={8} value={formData.detailed_instructions}
-                       onChange={(e) => setFormData(prev => ({...prev, detailed_instructions: e.target.value}))} />
+            <MemoizedTextField 
+              label="상세 지침" 
+              value={formData.detailed_instructions}
+              onChange={(value) => handleFormDataChange('detailed_instructions', value)} 
+              multiline 
+              rows={8}
+            />
           </TabPanel>
           <TabPanel value={currentTab} index={2}>
-            <TextField label="Few-shot 예시" fullWidth multiline rows={8} value={formData.few_shot_examples}
-                       onChange={(e) => setFormData(prev => ({...prev, few_shot_examples: e.target.value}))} />
+            <MemoizedTextField 
+              label="Few-shot 예시" 
+              value={formData.few_shot_examples}
+              onChange={(value) => handleFormDataChange('few_shot_examples', value)} 
+              multiline 
+              rows={8}
+            />
           </TabPanel>
           <TabPanel value={currentTab} index={3}>
-            <TextField label="Chain of Thought 과정" fullWidth multiline rows={8} value={formData.cot_process}
-                       onChange={(e) => setFormData(prev => ({...prev, cot_process: e.target.value}))} />
+            <MemoizedTextField 
+              label="Chain of Thought 과정" 
+              value={formData.cot_process}
+              onChange={(value) => handleFormDataChange('cot_process', value)} 
+              multiline 
+              rows={8}
+            />
           </TabPanel>
           <TabPanel value={currentTab} index={4}>
-            <TextField label="기본 프롬프트" fullWidth multiline rows={8} value={formData.base_prompt}
-                       onChange={(e) => setFormData(prev => ({...prev, base_prompt: e.target.value}))} required />
+            <MemoizedTextField 
+              label="기본 프롬프트" 
+              value={formData.base_prompt}
+              onChange={(value) => handleFormDataChange('base_prompt', value)} 
+              required 
+              multiline 
+              rows={8}
+            />
           </TabPanel>
         </DialogContent>
         <DialogActions>

@@ -45,17 +45,25 @@ class NewsAnalysisService:
         try:
             # 1. 파일 로드
             logger.info(f"뉴스 분석 시작: {file_path}, 모델: {model}")
+            print(f"\n=== 관련성 평가 시작 ===")
+            print(f"파일: {file_path}")
+            print(f"AI 모델: {model}")
+            print(f"세션 ID: {session_id}")
             news_data = file_service.load_news_data(file_path)
             
             if not news_data:
                 raise ValidationError("파일에서 뉴스 데이터를 찾을 수 없습니다.")
             
+            print(f"총 {len(news_data)}개 기사 로드 완료")
+            
             # 2. AI 클라이언트 생성
             progress_tracker.update_progress(
                 session_id, 0, len(news_data), 'AI 클라이언트 초기화', ''
             )
+            print(f"AI 클라이언트 초기화 중: {model}")
             
             ai_client = AIClientFactory.create_client(model, api_key)
+            print(f"AI 클라이언트 초기화 완료")
             
             # 3. 프롬프트 준비
             compiled_prompt = None
@@ -84,6 +92,8 @@ class NewsAnalysisService:
             progress_tracker.cleanup_session(session_id)
             
             logger.info(f"뉴스 분석 완료: {stats['relevant_items']}/{stats['total_items']} 관련")
+            print(f"\n결과 파일 저장 완료: {result_path}")
+            print(f"다운로드 폴더 복사 완룉: {download_path}")
             
             return result_path, stats
             
@@ -119,7 +129,7 @@ class NewsAnalysisService:
                 title = news_item.get("title", news_item.get("제목", ""))
                 content = news_item.get("description", news_item.get("content", news_item.get("내용", "")))
                 
-                # 진행상황 업데이트
+                # 진행상황 업데이트 및 로그 출력
                 elapsed_time = time.time() - start_time
                 processing_rate = current_index / (elapsed_time / 60) if elapsed_time > 0 else 0
                 
@@ -129,6 +139,10 @@ class NewsAnalysisService:
                     'errors': stats['processing_errors'],
                     'processing_rate': round(processing_rate, 1)
                 }
+                
+                # 백엔드 진행도 로그 출력 (매 10번째 기사마다 또는 마지막 기사)
+                if current_index % 10 == 0 or current_index == len(news_data):
+                    print(f"\n[관련성 평가 진행도] {current_index-1}/{len(news_data)} ({round((current_index-1)/len(news_data)*100, 1)}%) - 처리 속도: {round(processing_rate, 1)}기사/분")
                 
                 progress_tracker.update_progress(
                     session_id,
@@ -163,13 +177,17 @@ class NewsAnalysisService:
                 else:
                     stats["categories"]["기타"] += 1
                 
-                # 완료 진행상황 업데이트
+                # 완료 진행상황 업데이트 및 로그 출력
                 final_stats = {
                     'relevant_items': stats['relevant_items'],
                     'irrelevant_items': current_index - stats['relevant_items'],
                     'errors': stats['processing_errors'],
                     'processing_rate': round(processing_rate, 1)
                 }
+                
+                # 기사 분석 완료 로그 출력 (카테고리별 분류 결과 포함) - 매 5번째 기사마다
+                if current_index % 5 == 0 or current_index == len(news_data):
+                    print(f"[관련성 평가 완료] {current_index}/{len(news_data)} ({round(current_index/len(news_data)*100, 1)}%) - 카테고리: {analysis_result['category']} (신뢰도: {round(analysis_result.get('confidence', 0)*100, 1)}%)")
                 
                 progress_tracker.update_progress(
                     session_id,
@@ -188,6 +206,9 @@ class NewsAnalysisService:
                 error_msg = f"뉴스 항목 {i} 분석 실패: {str(e)}"
                 logger.error(error_msg)
                 stats["processing_errors"] += 1
+                
+                # 오류 발생 로그 출력
+                print(f"[관련성 평가 오류] {current_index}/{len(news_data)} - 오류: {str(e)[:100]}")
                 
                 # 기본값으로 결과 생성
                 news_item_analyzed = news_item.copy()
@@ -217,6 +238,19 @@ class NewsAnalysisService:
             'errors': stats['processing_errors'],
             'processing_rate': round(len(news_data) / ((time.time() - start_time) / 60), 1)
         }
+        
+        # 최종 완료 로그 출력
+        print(f"\n=== 관련성 평가 최종 완료 ===")
+        print(f"총 처리 기사: {stats['total_items']}개")
+        print(f"관련 기사: {stats['relevant_items']}개 ({stats['relevant_percent']}%)")
+        print(f"비관련 기사: {stats['total_items'] - stats['relevant_items']}개")
+        print(f"오류 발생: {stats['processing_errors']}개")
+        print(f"카테고리별 분류:")
+        for category, count in stats['categories'].items():
+            print(f"  - {category}: {count}개")
+        print(f"평균 처리 속도: {final_stats['processing_rate']}기사/분")
+        print(f"총 소요 시간: {round((time.time() - start_time) / 60, 1)}분")
+        print("=" * 40)
         
         progress_tracker.update_progress(
             session_id,

@@ -148,13 +148,13 @@ const ResultsPage = () => {
     setPreviewDialogOpen(false);
   };
   
-  // 파일 다운로드
-  const handleDownload = () => {
-    if (selectedFile) {
-      downloadFile(selectedFile.file_name);
+  // 파일 다운로드 (스낵바와 함께)
+  const handleDownloadWithNotification = (fileName) => {
+    if (fileName) {
+      downloadFile(fileName);
       setSnackbar({
         open: true,
-        message: `${selectedFile.file_name} 파일 다운로드를 시작합니다.`,
+        message: `${fileName} 파일 다운로드를 시작합니다.`,
         severity: 'success'
       });
     }
@@ -336,7 +336,7 @@ const ResultsPage = () => {
                   
                   <Box>
                     <Tooltip title="파일 다운로드">
-                      <IconButton color="primary" onClick={handleDownload}>
+                      <IconButton color="primary" onClick={() => handleDownloadWithNotification(selectedFile.file_name)}>
                         <DownloadIcon />
                       </IconButton>
                     </Tooltip>
@@ -377,12 +377,14 @@ const ResultsPage = () => {
                 <Divider sx={{ my: 2 }} />
                 
                 <Stack direction="row" spacing={2} justifyContent="flex-end">
-                  <DownloadButton
-                    fileName={selectedFile.file_name}
+                  <Button
                     variant="outlined"
                     size="small"
-                    label="파일 다운로드"
-                  />
+                    startIcon={<DownloadIcon />}
+                    onClick={() => handleDownloadWithNotification(selectedFile.file_name)}
+                  >
+                    파일 다운로드
+                  </Button>
                 </Stack>
               </Paper>
               
@@ -441,12 +443,14 @@ const ResultsPage = () => {
                           <Typography variant="subtitle2" gutterBottom>
                             카테고리 통계
                           </Typography>
-                          <DownloadButton 
-                            fileName={selectedFile.file_name} 
+                          <Button 
                             variant="text" 
                             size="small" 
-                            label="데이터 다운로드" 
-                          />
+                            startIcon={<DownloadIcon />}
+                            onClick={() => handleDownloadWithNotification(selectedFile.file_name)}
+                          >
+                            데이터 다운로드
+                          </Button>
                         </Box>
                         
                         <TableContainer>
@@ -515,12 +519,14 @@ const ResultsPage = () => {
                           <Typography variant="subtitle2" gutterBottom>
                             관련성 통계
                           </Typography>
-                          <DownloadButton 
-                            fileName={selectedFile.file_name} 
+                          <Button 
                             variant="text" 
                             size="small" 
-                            label="데이터 다운로드" 
-                          />
+                            startIcon={<DownloadIcon />}
+                            onClick={() => handleDownloadWithNotification(selectedFile.file_name)}
+                          >
+                            데이터 다운로드
+                          </Button>
                         </Box>
                         
                         <TableContainer>
@@ -608,12 +614,14 @@ const ResultsPage = () => {
                           <Typography variant="subtitle2" gutterBottom>
                             키워드 통계
                           </Typography>
-                          <DownloadButton 
-                            fileName={selectedFile.file_name} 
+                          <Button 
                             variant="text" 
                             size="small" 
-                            label="데이터 다운로드" 
-                          />
+                            startIcon={<DownloadIcon />}
+                            onClick={() => handleDownloadWithNotification(selectedFile.file_name)}
+                          >
+                            데이터 다운로드
+                          </Button>
                         </Box>
                         
                         <TableContainer>
@@ -704,11 +712,17 @@ const ResultsPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleClosePreviewDialog}>닫기</Button>
-          <DownloadButton 
-            fileName={selectedFile?.file_name}
+          <Button 
             variant="contained" 
-            color="primary" 
-          />
+            color="primary"
+            startIcon={<DownloadIcon />}
+            onClick={() => {
+              handleDownloadWithNotification(selectedFile?.file_name);
+              handleClosePreviewDialog();
+            }}
+          >
+            다운로드
+          </Button>
         </DialogActions>
       </Dialog>
       
