@@ -14,20 +14,54 @@ import {
 } from '@mui/icons-material';
 import { promptService } from '../api/promptService';
 
-// 메모화된 TextField 컴포넌트 - 리렌더링 최소화
-const MemoizedTextField = React.memo(({ label, value, onChange, required, multiline, rows, ...props }) => {
+// 안정화된 TextField 컴포넌트 - 포커스 유지 및 스크롤 방지
+const StableTextField = React.memo(({ label, value, onChange, required, multiline, rows, ...props }) => {
   const inputRef = useRef(null);
   const [localValue, setLocalValue] = useState(value);
   const debounceRef = useRef(null);
+  const focusPositionRef = useRef({ start: 0, end: 0 });
   
-  // value prop이 변경될 때만 localValue 업데이트
+  // value prop이 변경될 때만 localValue 업데이트 (무한 루프 방지)
   useEffect(() => {
-    setLocalValue(value);
+    if (value !== localValue) {
+      setLocalValue(value);
+    }
   }, [value]);
+  
+  // 포커스 위치 저장
+  const saveFocusPosition = useCallback(() => {
+    if (inputRef.current && inputRef.current.selectionStart !== null) {
+      focusPositionRef.current = {
+        start: inputRef.current.selectionStart,
+        end: inputRef.current.selectionEnd
+      };
+    }
+  }, []);
+  
+  // 포커스 위치 복원
+  const restoreFocusPosition = useCallback(() => {
+    if (inputRef.current && document.activeElement === inputRef.current) {
+      requestAnimationFrame(() => {
+        try {
+          inputRef.current.setSelectionRange(
+            focusPositionRef.current.start,
+            focusPositionRef.current.end
+          );
+        } catch (e) {
+          // 에러 무시 (일부 브라우저에서 발생할 수 있음)
+        }
+      });
+    }
+  }, []);
   
   const handleChange = useCallback((e) => {
     const newValue = e.target.value;
-    setLocalValue(newValue); // 즉시 로컬 상태 업데이트
+    
+    // 포커스 위치 저장
+    saveFocusPosition();
+    
+    // 즉시 로컬 상태 업데이트
+    setLocalValue(newValue);
     
     // 부모 컴포넌트로의 전달은 디바운스
     if (debounceRef.current) {
@@ -36,8 +70,19 @@ const MemoizedTextField = React.memo(({ label, value, onChange, required, multil
     
     debounceRef.current = setTimeout(() => {
       onChange(newValue);
-    }, 300); // 300ms 디바운스
-  }, [onChange]);
+      // 포커스 위치 복원
+      restoreFocusPosition();
+    }, 500); // 500ms 디바운스로 증가
+  }, [onChange, saveFocusPosition, restoreFocusPosition]);
+  
+  // 포커스 이벤트 핸들러
+  const handleFocus = useCallback((e) => {
+    // 스크롤 방지
+    e.preventDefault();
+    if (props.onFocus) {
+      props.onFocus(e);
+    }
+  }, [props.onFocus]);
   
   useEffect(() => {
     return () => {
@@ -56,6 +101,8 @@ const MemoizedTextField = React.memo(({ label, value, onChange, required, multil
       rows={rows}
       value={localValue}
       onChange={handleChange}
+      onFocus={handleFocus}
+      onBlur={saveFocusPosition}
       required={required}
       InputProps={{
         style: { resize: 'vertical' },
@@ -83,7 +130,7 @@ const MemoizedTextField = React.memo(({ label, value, onChange, required, multil
   );
 });
 
-MemoizedTextField.displayName = 'MemoizedTextField';
+StableTextField.displayName = 'StableTextField';
 
 const PromptsPage = () => {
   const [prompts, setPrompts] = useState([]);
@@ -103,8 +150,10 @@ const PromptsPage = () => {
     system_message: '정확한 JSON 형식으로만 응답하세요.'
   });
   
-  // 스크롤 위치 저장을 위한 ref (예비용)
+  // 스크롤 위치 및 포커스 상태 저장
   const dialogContentRef = useRef(null);
+  const scrollPositionRef = useRef(0);
+  const activeElementRef = useRef(null);
 
   const promptTemplates = {
     enhanced: {
@@ -155,6 +204,10 @@ const PromptsPage = () => {
   };
 
   const handleOpenDialog = (mode, prompt = null) => {
+    // 스크롤 위치 초기화
+    scrollPositionRef.current = 0;
+    activeElementRef.current = null;
+    
     setDialogMode(mode);
     setCurrentTab(0);
     
@@ -187,15 +240,38 @@ const PromptsPage = () => {
     }
   };
   
-  // 폼 데이터 변경 핸들러 (단순화)
-  const handleFormDataChange = useCallback((field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  // 스크롤 위치 저장
+  const saveScrollPosition = useCallback(() => {
+    if (dialogContentRef.current) {
+      scrollPositionRef.current = dialogContentRef.current.scrollTop;
+    }
+    if (document.activeElement && document.activeElement.tagName === 'TEXTAREA') {
+      activeElementRef.current = document.activeElement;
+    }
   }, []);
   
-  // 탭 변경 핸들러 (단순화)
-  const handleTabChange = useCallback((event, newValue) => {
-    setCurrentTab(newValue);
+  // 스크롤 위치 복원
+  const restoreScrollPosition = useCallback(() => {
+    if (dialogContentRef.current && scrollPositionRef.current > 0) {
+      requestAnimationFrame(() => {
+        dialogContentRef.current.scrollTop = scrollPositionRef.current;
+      });
+    }
   }, []);
+  
+  // 폼 데이터 변경 핸들러 (스크롤 위치 보존)
+  const handleFormDataChange = useCallback((field, value) => {
+    saveScrollPosition();
+    setFormData(prev => ({ ...prev, [field]: value }));
+    setTimeout(restoreScrollPosition, 50);
+  }, [saveScrollPosition, restoreScrollPosition]);
+  
+  // 탭 변경 핸들러 (스크롤 위치 보존)
+  const handleTabChange = useCallback((event, newValue) => {
+    saveScrollPosition();
+    setCurrentTab(newValue);
+    setTimeout(restoreScrollPosition, 100);
+  }, [saveScrollPosition, restoreScrollPosition]);
 
   const handleSubmit = async () => {
     try {
@@ -211,6 +287,9 @@ const PromptsPage = () => {
         await promptService.updatePrompt(currentPrompt.id, formData);
         showAlert('프롬프트가 수정되었습니다.', 'success');
       }
+      // 다이얼로그 닫기 전 상태 초기화
+      scrollPositionRef.current = 0;
+      activeElementRef.current = null;
       setOpenDialog(false);
       loadPrompts();
     } catch (error) {
@@ -403,14 +482,14 @@ const PromptsPage = () => {
             scrollBehavior: 'smooth',
             overscrollBehavior: 'contain'
           }}>
-          <MemoizedTextField 
+          <StableTextField 
             label="프롬프트 이름" 
             value={formData.name} 
             onChange={(value) => handleFormDataChange('name', value)} 
             required 
             margin="normal"
           />
-          <MemoizedTextField 
+          <StableTextField 
             label="설명" 
             value={formData.description}
             onChange={(value) => handleFormDataChange('description', value)} 
@@ -418,7 +497,7 @@ const PromptsPage = () => {
             rows={2}
             margin="normal"
           />
-          <MemoizedTextField 
+          <StableTextField 
             label="시스템 메시지" 
             value={formData.system_message}
             onChange={(value) => handleFormDataChange('system_message', value)} 
@@ -439,7 +518,7 @@ const PromptsPage = () => {
           </Tabs>
 
           <TabPanel value={currentTab} index={0}>
-            <MemoizedTextField 
+            <StableTextField 
               label="역할 정의" 
               value={formData.role_definition}
               onChange={(value) => handleFormDataChange('role_definition', value)} 
@@ -449,7 +528,7 @@ const PromptsPage = () => {
             />
           </TabPanel>
           <TabPanel value={currentTab} index={1}>
-            <MemoizedTextField 
+            <StableTextField 
               label="상세 지침" 
               value={formData.detailed_instructions}
               onChange={(value) => handleFormDataChange('detailed_instructions', value)} 
@@ -458,7 +537,7 @@ const PromptsPage = () => {
             />
           </TabPanel>
           <TabPanel value={currentTab} index={2}>
-            <MemoizedTextField 
+            <StableTextField 
               label="Few-shot 예시" 
               value={formData.few_shot_examples}
               onChange={(value) => handleFormDataChange('few_shot_examples', value)} 
@@ -467,7 +546,7 @@ const PromptsPage = () => {
             />
           </TabPanel>
           <TabPanel value={currentTab} index={3}>
-            <MemoizedTextField 
+            <StableTextField 
               label="Chain of Thought 과정" 
               value={formData.cot_process}
               onChange={(value) => handleFormDataChange('cot_process', value)} 
@@ -476,7 +555,7 @@ const PromptsPage = () => {
             />
           </TabPanel>
           <TabPanel value={currentTab} index={4}>
-            <MemoizedTextField 
+            <StableTextField 
               label="기본 프롬프트" 
               value={formData.base_prompt}
               onChange={(value) => handleFormDataChange('base_prompt', value)} 
