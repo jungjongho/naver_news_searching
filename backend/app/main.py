@@ -9,6 +9,7 @@ import sys
 import logging
 
 from app.api.endpoints import crawler, relevance, download, prompts
+from app.websocket import endpoints as websocket_endpoints
 from app.core.config import settings
 from app.common.exceptions import NewsSearchException
 from app.common.exception_handlers import (
@@ -51,6 +52,7 @@ app.include_router(crawler.router)
 app.include_router(relevance.router)
 app.include_router(download.router)
 app.include_router(prompts.router)
+app.include_router(websocket_endpoints.router)
 
 # 결과 파일 정적 호스팅
 app.mount("/results", StaticFiles(directory=settings.RESULTS_PATH), name="results")

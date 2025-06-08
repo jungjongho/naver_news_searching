@@ -58,6 +58,7 @@ class RelevanceRequest(BaseModel):
     api_key: str = Field(..., description="OpenAI 또는 Claude API 키")
     model: Optional[str] = Field("gpt-4.1-nano", description="사용할 LLM 모델 (gpt-4.1-nano, gpt-4.1-mini, gpt-4.1, gpt-4o-mini, gpt-3.5-turbo 등)")
     prompt_id: Optional[str] = Field(None, description="사용할 프롬프트 ID")
+    session_id: Optional[str] = Field(None, description="세션 ID (진행률 추적용)")
 
 
 class RelevanceResponse(BaseModel):

@@ -29,8 +29,8 @@ import LockIcon from '@mui/icons-material/Lock';
 
 import PageTitle from '../components/common/PageTitle';
 import AlertMessage from '../components/common/AlertMessage';
-import ProgressDialog from '../components/common/ProgressDialog';
 import LoadingOverlay from '../components/common/LoadingOverlay';
+import ProgressDialog from '../components/common/ProgressDialog';
 import relevanceService from '../api/relevanceService';
 import crawlerService from '../api/crawlerService';
 import promptService from '../api/promptService';
@@ -59,15 +59,11 @@ const RelevancePage = () => {
   const [model, setModel] = useState('gpt-4.1-nano');
   const [prompts, setPrompts] = useState([]);
   const [selectedPrompt, setSelectedPrompt] = useState('');
-  const [analysisMode, setAnalysisMode] = useState('sync'); // 'sync', 'async'
   const [loading, setLoading] = useState(false);
   const [showProgress, setShowProgress] = useState(false);
-  const [currentSessionId, setCurrentSessionId] = useState(null);
-  const [progressData, setProgressData] = useState({});
-  const [progressInterval, setProgressInterval] = useState(null);
+  const [sessionId, setSessionId] = useState(null);
   const [alert, setAlert] = useState({ open: false, type: 'info', message: '', title: '' });
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
-  const [pollingInterval, setPollingInterval] = useState(null);
   
   // 프롬프트 목록 로드
   const loadPrompts = async () => {
@@ -164,73 +160,6 @@ const RelevancePage = () => {
     storage.set('ai_model', selectedModel);
   };
 
-  // 진행 상황 폴링 시작
-  const startProgressPolling = (sessionId) => {
-    console.log('Starting progress polling for session:', sessionId);
-    setCurrentSessionId(sessionId);
-    setShowProgress(true);
-    setProgressData({ current: 0, total: 0, stage: '분석 준비중', startTime: Date.now() });
-    
-    const interval = setInterval(async () => {
-      try {
-        console.log('Polling progress for session:', sessionId);
-        const response = await relevanceService.getAnalysisProgress(sessionId);
-        console.log('Progress response:', response);
-        
-        if (response.success) {
-          const progress = response.progress;
-          setProgressData(prev => ({
-            ...progress,
-            startTime: prev.startTime || Date.now()
-          }));
-          
-          // 분석 완료 확인
-          if (progress.stage === '분석 완료' || (progress.current >= progress.total && progress.total > 0)) {
-            clearInterval(interval);
-            setProgressInterval(null);
-            
-            // 잠시 후 다이얼로그 닫기
-            setTimeout(() => {
-              setShowProgress(false);
-              setAlert({
-                open: true,
-                type: 'success',
-                title: '관련성 평가 완료',
-                message: `뉴스 기사의 관련성 평가가 완료되었습니다.`,
-              });
-              
-              // 결과 페이지로 이동
-              setTimeout(() => {
-                navigate('/results', { 
-                  state: { 
-                    fromRelevance: true
-                  }
-                });
-              }, 1000);
-            }, 1500);
-          }
-        } else {
-          console.error('Progress polling failed:', response);
-        }
-      } catch (error) {
-        console.error('진행 상황 확인 중 오류:', error);
-      }
-    }, 800); // 0.8초마다 확인 (더 빠르게)
-    
-    setProgressInterval(interval);
-  };
-  
-  // 진행 상황 폴링 중지
-  const stopProgressPolling = () => {
-    if (progressInterval) {
-      clearInterval(progressInterval);
-      setProgressInterval(null);
-    }
-    setShowProgress(false);
-    setCurrentSessionId(null);
-    setProgressData({});
-  };
-  
   // 관련성 평가 실행
   const handleEvaluate = async () => {
     if (!selectedFile) {
@@ -251,113 +180,67 @@ const RelevancePage = () => {
       return;
     }
     
-    setLoading(true);
-    
     try {
-      // 프롬프트 ID 포함한 요청 데이터
+      console.log('🚀 관련성 평가 시작...');
+      
+      // 1. 로딩 상태부터 설정
+      setLoading(true);
+      
+      // 2. session_id 생성
+      const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log('📋 생성된 Session ID:', newSessionId);
+      
+      // 3. 상태를 한번에 동기적으로 업데이트
+      setSessionId(newSessionId);
+      setShowProgress(true);
+      
+      console.log('📊 상태 업데이트 완료:', { 
+        sessionId: newSessionId, 
+        showProgress: true, 
+        loading: true 
+      });
+      
+      // 4. 약간의 지연으로 React 상태가 완전히 업데이트되도록 보장
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // 5. 프롬프트 ID 포함한 요청 데이터
       const requestData = {
         file_path: selectedFile,
         api_key: apiKey,
         model: model,
-        prompt_id: selectedPrompt || null
+        prompt_id: selectedPrompt || null,
+        session_id: newSessionId  // 프론트엔드에서 생성한 session_id 전달
       };
       
-      let result;
+      console.log('📤 API 요청 시작:', requestData);
+      const result = await relevanceService.evaluateNews(requestData);
       
-      if (analysisMode === 'sync') {
-        // 동기 방식 - 진행 상황 추적
-        setLoading(false); // 로딩 오버레이 대신 진행 다이얼로그 사용
+      if (result.success) {
+        setAlert({
+          open: true,
+          type: 'success',
+          title: '관련성 평가 완료',
+          message: `뉴스 기사의 관련성 평가가 완료되었습니다. 관련 뉴스: ${result.stats.relevant_items}/${result.stats.total_items} (${result.stats.relevant_percent}%)`,
+        });
         
-        // 고정된 세션 ID 사용 (백엔드와 동일)
-        const sessionId = "current_analysis";
-        console.log('Generated session ID:', sessionId);
-        console.log('Selected file:', selectedFile);
-        
-        try {
-          // 1. 먼저 진행 상황 초기화
-          console.log('초기화 중...');
-          const initResult = await relevanceService.initializeProgress(requestData);
-          
-          if (!initResult.success) {
-            throw new Error(initResult.message);
-          }
-          
-          console.log('Progress initialized:', initResult);
-          
-          // 2. 진행 상황 추적 시작
-          startProgressPolling(sessionId);
-          
-          // 3. 진행 상황이 업데이트된 후 동기 API 호출
-          setTimeout(async () => {
-            try {
-              console.log('분석 시작...');
-              result = await relevanceService.evaluateNewsSync(requestData);
-              
-              // 진행 상황 폴링 중지
-              stopProgressPolling();
-              
-              if (result.success) {
-                setAlert({
-                  open: true,
-                  type: 'success',
-                  title: '관련성 평가 완료',
-                  message: `뉴스 기사의 관련성 평가가 완료되었습니다. 관련 뉴스: ${result.stats.relevant_items}/${result.stats.total_items} (${result.stats.relevant_percent}%)`,
-                });
-                
-                // 결과 페이지로 이동 (1초 후)
-                setTimeout(() => {
-                  navigate('/results', { 
-                    state: { 
-                      evaluationResult: result,
-                      fromRelevance: true
-                    }
-                  });
-                }, 1000);
-              } else {
-                setAlert({
-                  open: true,
-                  type: 'error',
-                  message: `관련성 평가에 실패했습니다: ${result.message}`,
-                });
-              }
-            } catch (error) {
-              stopProgressPolling();
-              throw error;
+        // 결과 페이지로 이동 (3초 후)
+        setTimeout(() => {
+          navigate('/results', { 
+            state: { 
+              evaluationResult: result,
+              fromRelevance: true
             }
-          }, 1000); // 1초 후 API 호출 시작 (진행 상황이 표시될 시간 확보)
-        } catch (error) {
-          stopProgressPolling();
-          console.error('관련성 평가 중 오류:', error);
-          setAlert({
-            open: true,
-            type: 'error',
-            message: `오류가 발생했습니다: ${error.message}`,
           });
-        }
+        }, 3000);
       } else {
-        // 비동기 방식 - 백그라운드 처리
-        result = await relevanceService.evaluateNews(requestData);
-        
-        if (result.success) {
-          setAlert({
-            open: true,
-            type: 'info',
-            title: '관련성 평가 시작',
-            message: `${result.stats?.total_items || '선택된'}개 뉴스 항목의 관련성 평가를 시작했습니다. 분석은 백그라운드에서 진행되며, 완료되면 자동으로 결과 페이지로 이동합니다.`,
-          });
-          
-          // 상태 폴링 시작
-          startPolling(selectedFile);
-        } else {
-          setAlert({
-            open: true,
-            type: 'error',
-            message: `관련성 평가 시작에 실패했습니다: ${result.message}`,
-          });
-        }
+        setAlert({
+          open: true,
+          type: 'error',
+          message: `관련성 평가에 실패했습니다: ${result.message}`,
+        });
       }
     } catch (error) {
-      console.error('관련성 평가 중 오류:', error);
+      console.error('❌ 관련성 평가 중 오류:', error);
       setAlert({
         open: true,
         type: 'error',
@@ -367,66 +250,6 @@ const RelevancePage = () => {
       setLoading(false);
     }
   };
-  
-  // 상태 폴링 시작 (비동기 방식용)
-  const startPolling = (fileName) => {
-    const interval = setInterval(async () => {
-      try {
-        const statusResult = await relevanceService.checkAnalysisStatus(fileName);
-        
-        if (statusResult.status === 'completed') {
-          clearInterval(interval);
-          setPollingInterval(null);
-          
-          setAlert({
-            open: true,
-            type: 'success',
-            title: '관련성 평가 완료',
-            message: '뉴스 기사의 관련성 평가가 완료되었습니다.',
-          });
-          
-          // 결과 페이지로 이동
-          setTimeout(() => {
-            navigate('/results', { 
-              state: { 
-                evaluationResult: {
-                  success: true,
-                  file_path: statusResult.file.file_name,
-                  message: '분석 완료'
-                },
-                fromRelevance: true
-              }
-            });
-          }, 1000);
-        } else if (statusResult.status === 'error') {
-          clearInterval(interval);
-          setPollingInterval(null);
-          
-          setAlert({
-            open: true,
-            type: 'error',
-            message: `분석 중 오류가 발생했습니다: ${statusResult.message}`,
-          });
-        }
-      } catch (error) {
-        console.error('상태 확인 중 오류:', error);
-      }
-    }, 5000); // 5초마다 확인
-    
-    setPollingInterval(interval);
-  };
-  
-  // 컴포넌트 언마운트 시 폴링 정리
-  useEffect(() => {
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-      }
-      if (progressInterval) {
-        clearInterval(progressInterval);
-      }
-    };
-  }, [pollingInterval, progressInterval]);
 
   return (
     <Box>
@@ -442,14 +265,6 @@ const RelevancePage = () => {
         title={alert.title}
         message={alert.message}
         onClose={() => setAlert({ ...alert, open: false })}
-      />
-
-      {/* 진행 상황 다이얼로그 */}
-      <ProgressDialog
-        open={showProgress}
-        title="관련성 평가 진행 중"
-        progress={progressData}
-        onClose={null} // 닫기 불가능
       />
       
       <Grid container spacing={3}>
@@ -592,26 +407,6 @@ const RelevancePage = () => {
               </Typography>
             </Box>
             
-            <Box sx={{ mb: 3 }}>
-              <FormControl fullWidth variant="outlined">
-                <InputLabel>분석 방식</InputLabel>
-                <Select
-                  value={analysisMode}
-                  onChange={(e) => setAnalysisMode(e.target.value)}
-                  label="분석 방식"
-                >
-                  <MenuItem value="sync">동기 방식 (실시간 진행률 표시) - 추천</MenuItem>
-                  <MenuItem value="async">비동기 방식 (백그라운드 처리)</MenuItem>
-                </Select>
-              </FormControl>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {analysisMode === 'sync' 
-                  ? '분석 진행 상황을 실시간으로 확인하며 완료까지 기다립니다. 기사 수에 따라 수 분이 소요될 수 있습니다.'
-                  : '분석을 백그라운드에서 진행하며, 완료되면 자동으로 결과 페이지로 이동합니다.'
-                }
-              </Typography>
-            </Box>
-            
             <Divider sx={{ mb: 3 }} />
             
             <Box sx={{ textAlign: 'center' }}>
@@ -620,17 +415,14 @@ const RelevancePage = () => {
                 color="primary"
                 size="large"
                 onClick={handleEvaluate}
-                disabled={!selectedFile || !apiKey || loading || showProgress}
+                disabled={!selectedFile || !apiKey || loading}
                 startIcon={<AnalyticsIcon />}
                 sx={{ px: 4, py: 1 }}
               >
                 관련성 평가 시작
               </Button>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {analysisMode === 'sync' 
-                  ? '선택한 파일의 모든 뉴스 기사를 평가하고 실시간으로 진행 상황을 확인합니다.'
-                  : '선택한 파일의 모든 뉴스 기사를 백그라운드에서 평가합니다. 완료되면 자동으로 알림을 받습니다.'
-                }
+                선택한 파일의 모든 뉴스 기사를 평가합니다. 기사 수에 따라 수 분이 소요될 수 있습니다.
               </Typography>
             </Box>
           </Paper>
@@ -668,8 +460,8 @@ const RelevancePage = () => {
                     <InfoOutlinedIcon color="primary" fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
-                    primary="실시간 진행률"
-                    secondary="동기 방식 선택 시 각 기사의 분석 진행 상황과 통계를 실시간으로 확인할 수 있습니다."
+                    primary="분석 진행"
+                    secondary="선택한 파일의 모든 기사를 순차적으로 분석하며, 완료 후 결과를 확인할 수 있습니다."
                   />
                 </ListItem>
               </List>
@@ -715,8 +507,8 @@ const RelevancePage = () => {
                     <HelpOutlineIcon color="primary" fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
-                    primary="진행률 표시"
-                    secondary="동기 방식 선택 시 각 기사의 처리 상황, 카테고리 분류 결과, 예상 남은 시간 등을 실시간으로 확인할 수 있습니다."
+                    primary="백엔드 진행률 로그"
+                    secondary="서버 콘솔에서 각 기사의 분석 진행 상황과 통계를 확인할 수 있습니다."
                   />
                 </ListItem>
               </List>
@@ -728,6 +520,15 @@ const RelevancePage = () => {
       <LoadingOverlay
         open={loading && !showProgress}
         message="분석을 준비하고 있습니다..."
+      />
+      
+      <ProgressDialog
+        open={showProgress}
+        onClose={() => {
+          setShowProgress(false);
+          setSessionId(null);
+        }}
+        sessionId={sessionId}
       />
     </Box>
   );

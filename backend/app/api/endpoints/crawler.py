@@ -8,7 +8,7 @@ import os
 
 from app.models.schemas import CrawlerRequest, CrawlerResponse, FileListResponse, DownloadLinkResponse
 from app.services.naver_api_service import NaverApiService
-from app.utils.file_utils import get_excel_files, get_excel_preview, get_excel_statistics
+from app.core.file_manager import file_manager
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -22,16 +22,6 @@ router = APIRouter(
 def get_naver_api_service() -> NaverApiService:
     return NaverApiService()
 
-def _find_file_path(file_name: str) -> Optional[str]:
-    """여러 디렉토리에서 파일 경로 찾기"""
-    search_paths = [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]
-    
-    for search_path in search_paths:
-        potential_path = os.path.join(search_path, file_name)
-        if os.path.exists(potential_path):
-            return potential_path
-    return None
-
 @router.post("/crawl", response_model=CrawlerResponse)
 async def crawl_news(
     request: CrawlerRequest,
@@ -39,7 +29,7 @@ async def crawl_news(
     naver_api_service: NaverApiService = Depends(get_naver_api_service)
 ):
     """키워드 목록에 대한 뉴스 크롤링"""
-    logger.info(f"Searching news for keywords: {request.keywords}")
+    logger.info(f"뉴스 검색 시작: {request.keywords}")
     
     try:
         # API 키 검증
@@ -67,7 +57,7 @@ async def crawl_news(
                 errors=errors
             )
         
-        # 결과 저장
+        # 결과 저장 (최적화된 파일 매니저 사용)
         file_path, download_path = naver_api_service.save_results(news_items, request.keywords)
         
         if not file_path:
@@ -96,7 +86,7 @@ async def crawl_news(
         )
     
     except Exception as e:
-        logger.error(f"Error during news search: {str(e)}")
+        logger.error(f"뉴스 검색 오류: {str(e)}")
         return CrawlerResponse(
             success=False,
             message=f"뉴스 검색 중 오류가 발생했습니다: {str(e)}",
@@ -105,18 +95,20 @@ async def crawl_news(
 
 @router.get("/files", response_model=FileListResponse)
 async def get_files():
-    """크롤링 결과 파일 목록 조회"""
-    files = get_excel_files()
+    """크롤링 결과 파일 목록 조회 (최적화됨)"""
+    files = file_manager.get_excel_files_optimized()
     return FileListResponse(files=files)
 
 @router.get("/files/{file_name}/preview")
 async def get_file_preview(file_name: str, max_rows: int = 5):
-    """파일 내용 미리보기"""
-    file_path = _find_file_path(file_name)
+    """파일 내용 미리보기 (최적화됨)"""
+    file_path = file_manager.find_file_path(file_name)
     
     if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
     
+    # file_utils에서 기존 함수 사용 (추후 최적화 가능)
+    from app.utils.file_utils import get_excel_preview
     preview = get_excel_preview(file_path, max_rows)
     
     if "error" in preview:
@@ -126,12 +118,14 @@ async def get_file_preview(file_name: str, max_rows: int = 5):
 
 @router.get("/files/{file_name}/statistics")
 async def get_file_stats(file_name: str):
-    """파일 통계 정보"""
-    file_path = _find_file_path(file_name)
+    """파일 통계 정보 (최적화됨)"""
+    file_path = file_manager.find_file_path(file_name)
     
     if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")
     
+    # file_utils에서 기존 함수 사용 (추후 최적화 가능)
+    from app.utils.file_utils import get_excel_statistics
     stats = get_excel_statistics(file_path)
     
     if "error" in stats:
@@ -141,8 +135,8 @@ async def get_file_stats(file_name: str):
 
 @router.get("/files/{file_name}/download-link", response_model=DownloadLinkResponse)
 async def get_file_download_link(file_name: str):
-    """파일 다운로드 링크 생성"""
-    file_path = _find_file_path(file_name)
+    """파일 다운로드 링크 생성 (최적화됨)"""
+    file_path = file_manager.find_file_path(file_name)
     
     if not file_path:
         raise HTTPException(status_code=404, detail=f"File '{file_name}' not found")

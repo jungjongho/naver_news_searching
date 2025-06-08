@@ -1,321 +1,383 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Dialog,
   DialogTitle,
   DialogContent,
-  Box,
-  Typography,
+  DialogActions,
+  Button,
   LinearProgress,
-  CircularProgress,
-  Paper,
+  Typography,
+  Box,
+  Chip,
   List,
   ListItem,
-  ListItemIcon,
   ListItemText,
-  Chip,
+  Card,
+  CardContent,
   Grid,
-  Divider
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
-import AnalyticsIcon from '@mui/icons-material/Analytics';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import ArticleIcon from '@mui/icons-material/Article';
 
-const ProgressDialog = ({ 
-  open, 
-  title = "관련성 평가 진행 중",
-  progress = {},
-  onClose = null // null이면 닫기 불가능
-}) => {
-  const {
-    current = 0,
-    total = 0,
-    stage = '',
-    currentItem = '',
-    processedItems = [],
-    errors = [],
-    stats = {}
-  } = progress;
+const ProgressDialog = ({ open, onClose, sessionId }) => {
+  const [progress, setProgress] = useState({
+    current: 0,
+    total: 0,
+    percentage: 0,
+    isComplete: false,
+    error: null
+  });
+  
+  const [recentArticles, setRecentArticles] = useState([]);
+  const [stats, setStats] = useState(null);
+  const wsRef = useRef(null);
+  const maxRecentArticles = 5;
 
-  const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
-  const startTime = progress.startTime || Date.now();
-  const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
-  const remainingTime = total > 0 && current > 0 ? 
-    Math.round(((total - current) / current) * elapsedTime) : 
-    null;
+  // WebSocket 연결 함수
+  const connectWebSocket = useCallback(() => {
+    if (!open || !sessionId) {
+      console.log('🚫 WebSocket 연결 조건 불충족:', { open, sessionId });
+      return;
+    }
 
-  const formatTime = (seconds) => {
-    if (seconds < 60) return `${seconds}초`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}분 ${seconds % 60}초`;
-    return `${Math.floor(seconds / 3600)}시간 ${Math.floor((seconds % 3600) / 60)}분`;
+    console.log('🚀 WebSocket 연결 준비 시작...');
+
+    // WebSocket URL (백엔드 포트 8000으로 명시적 지정)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const backendHost = window.location.hostname;
+    const backendPort = '8000';  // 백엔드 포트 명시적 지정
+    const wsUrl = `${protocol}//${backendHost}:${backendPort}/ws/${sessionId}`;
+    
+    console.log('🔗 WebSocket 연결 시도:', wsUrl);
+    console.log('🖥️ 백엔드 호스트:', `${backendHost}:${backendPort}`);
+    console.log('🏷️ 세션 ID:', sessionId);
+    console.log('🌐 현재 URL:', window.location.href);
+    console.log('🔌 프로토콜:', protocol);
+    
+    try {
+      wsRef.current = new WebSocket(wsUrl);
+      
+      wsRef.current.onopen = () => {
+        console.log('✅ WebSocket 연결 성공:', sessionId);
+        // 연결 확인 메시지 전송
+        wsRef.current.send(JSON.stringify({ type: 'ping', sessionId }));
+      };
+      
+      wsRef.current.onmessage = (event) => {
+        console.log('📨 WebSocket 메시지 수신:', event.data);
+        
+        try {
+          const data = JSON.parse(event.data);
+          console.log('📊 파싱된 데이터:', data);
+          
+          switch (data.type) {
+            case 'connection_established':
+              console.log('🔗 연결 확인됨');
+              break;
+              
+            case 'progress_update':
+              console.log(`🔄 진행률 업데이트: ${data.current}/${data.total} (${data.percentage}%)`);
+              setProgress({
+                current: data.current,
+                total: data.total,
+                percentage: data.percentage,
+                isComplete: false,
+                error: null
+              });
+              
+              // 최근 처리된 기사 목록 업데이트
+              if (data.article_title && data.category) {
+                setRecentArticles(prev => {
+                  const newArticle = {
+                    id: Date.now(),
+                    title: data.article_title,
+                    category: data.category,
+                    confidence: data.confidence,
+                    timestamp: new Date().toLocaleTimeString()
+                  };
+                  
+                  const updated = [newArticle, ...prev].slice(0, maxRecentArticles);
+                  console.log('📝 기사 목록 업데이트:', newArticle.title.substring(0, 50));
+                  return updated;
+                });
+              }
+              break;
+              
+            case 'analysis_complete':
+              console.log('✅ 분석 완료:', data.stats);
+              setProgress(prev => ({
+                ...prev,
+                isComplete: true
+              }));
+              setStats(data.stats);
+              break;
+              
+            case 'error':
+              console.error('❌ 서버 오류:', data.message);
+              setProgress(prev => ({
+                ...prev,
+                error: data.message
+              }));
+              break;
+              
+            default:
+              console.log('❓ 알 수 없는 메시지 타입:', data.type);
+          }
+        } catch (parseError) {
+          console.error('❌ JSON 파싱 오류:', parseError, 'Raw data:', event.data);
+        }
+      };
+      
+      wsRef.current.onerror = (error) => {
+        console.error('❌ WebSocket 오류:', error);
+        setProgress(prev => ({
+          ...prev,
+          error: 'WebSocket 연결 오류가 발생했습니다.'
+        }));
+      };
+      
+      wsRef.current.onclose = (event) => {
+        console.log('🔌 WebSocket 연결 종료:', {
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean
+        });
+      };
+    } catch (connectionError) {
+      console.error('❌ WebSocket 생성 오류:', connectionError);
+      setProgress(prev => ({
+        ...prev,
+        error: `WebSocket 연결 실패: ${connectionError.message}`
+      }));
+    }
+  }, [open, sessionId, maxRecentArticles]);
+
+  // WebSocket 연결
+  useEffect(() => {
+    console.log('🔄 ProgressDialog useEffect 트리거:', { open, sessionId });
+    
+    if (!open || !sessionId) {
+      console.log('⏸️ WebSocket 연결 조건 불충족:', { open, sessionId });
+      return;
+    }
+
+    console.log('⏰ WebSocket 연결 준비 중...');
+    
+    // 상태가 완전히 업데이트되었는지 확인 후 연결
+    const connectTimeout = setTimeout(() => {
+      console.log('🚀 WebSocket 연결 시도 시작');
+      connectWebSocket();
+    }, 300); // 300ms로 단축
+
+    // 컴포넌트 언마운트 시 WebSocket 연결 해제
+    return () => {
+      clearTimeout(connectTimeout);
+      if (wsRef.current) {
+        console.log('🔌 WebSocket 연결 해제 중...');
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [open, sessionId, connectWebSocket]); // connectWebSocket 의존성 추가
+
+  // 다이얼로그 닫기 시 상태 초기화
+  const handleClose = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    setProgress({
+      current: 0,
+      total: 0,
+      percentage: 0,
+      isComplete: false,
+      error: null
+    });
+    setRecentArticles([]);
+    setStats(null);
+    onClose();
   };
 
-  const getRelevanceRate = () => {
-    if (stats.relevant_items !== undefined && current > 0) {
-      return Math.round((stats.relevant_items / current) * 100);
+  const getCategoryColor = (category) => {
+    switch (category) {
+      case '자사언급기사':
+        return 'error';
+      case '업계관련기사':
+        return 'primary';
+      case '건기식펫푸드관련기사':
+        return 'secondary';
+      case '기타':
+        return 'default';
+      default:
+        return 'default';
     }
-    return 0;
+  };
+
+  const getCategoryIcon = (category) => {
+    switch (category) {
+      case '자사언급기사':
+        return '🏢';
+      case '업계관련기사':
+        return '💄';
+      case '건기식펫푸드관련기사':
+        return '🍃';
+      case '기타':
+        return '📰';
+      default:
+        return '📰';
+    }
   };
 
   return (
     <Dialog 
       open={open} 
-      onClose={onClose}
-      maxWidth="md" 
+      onClose={progress.isComplete ? handleClose : undefined}
+      maxWidth="md"
       fullWidth
-      disableEscapeKeyDown={!onClose}
-      PaperProps={{
-        sx: { 
-          minHeight: '500px',
-          bgcolor: 'background.default'
-        }
-      }}
+      disableEscapeKeyDown={!progress.isComplete}
     >
-      <DialogTitle sx={{ pb: 1, bgcolor: 'primary.main', color: 'white' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <AnalyticsIcon />
-          {title}
-        </Box>
+      <DialogTitle>
+        {progress.isComplete ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CheckCircleIcon color="success" />
+            <Typography variant="h6">관련성 평가 완료!</Typography>
+          </Box>
+        ) : progress.error ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ErrorIcon color="error" />
+            <Typography variant="h6">오류 발생</Typography>
+          </Box>
+        ) : (
+          <Typography variant="h6">관련성 평가 진행 중...</Typography>
+        )}
       </DialogTitle>
       
-      <DialogContent sx={{ pt: 3 }}>
-        {/* 전체 진행률 섹션 개선 */}
-        <Paper sx={{ p: 3, mb: 3, bgcolor: 'grey.50' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6" color="primary" fontWeight="bold">
-              진행률: {current} / {total}
-            </Typography>
-            <Chip 
-              label={`${percentage}%`} 
-              color="primary" 
-              variant="filled"
-              sx={{ fontWeight: 'bold', fontSize: '1.1rem', px: 2 }}
-            />
-          </Box>
-          <LinearProgress 
-            variant="determinate" 
-            value={percentage} 
-            sx={{ 
-              height: 12, 
-              borderRadius: 6,
-              bgcolor: 'grey.200',
-              '& .MuiLinearProgress-bar': {
-                borderRadius: 6,
-                bgcolor: percentage < 30 ? 'warning.main' : 
-                         percentage < 70 ? 'info.main' : 'success.main'
-              }
-            }}
-          />
-          
-          {/* 시간 정보 */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, gap: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <AccessTimeIcon fontSize="small" color="action" />
-              <Typography variant="body2" color="text.secondary">
-                경과: {formatTime(elapsedTime)}
-              </Typography>
-            </Box>
-            {remainingTime && remainingTime > 0 && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <TrendingUpIcon fontSize="small" color="action" />
+      <DialogContent>
+        {progress.error ? (
+          <Typography color="error" variant="body1">
+            {progress.error}
+          </Typography>
+        ) : (
+          <Box>
+            {/* 진행률 표시 */}
+            <Box sx={{ mb: 3 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography variant="body2">
+                  진행률: {progress.current}/{progress.total} 
+                  {progress.total > 0 && ` (${progress.percentage.toFixed(1)}%)`}
+                </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  예상 남은 시간: {formatTime(remainingTime)}
+                  {progress.isComplete ? '완료됨' : '진행 중...'}
                 </Typography>
               </Box>
+              
+              <LinearProgress 
+                variant="determinate" 
+                value={progress.percentage} 
+                sx={{ height: 8, borderRadius: 4 }}
+              />
+            </Box>
+
+            {/* 완료 통계 */}
+            {progress.isComplete && stats && (
+              <Card sx={{ mb: 3, bgcolor: 'success.light', color: 'success.contrastText' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    분석 완료 결과
+                  </Typography>
+                  
+                  <Grid container spacing={2}>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="body2">총 기사 수</Typography>
+                      <Typography variant="h6">{stats.total_items}개</Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="body2">관련 기사</Typography>
+                      <Typography variant="h6">{stats.relevant_items}개</Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="body2">관련성 비율</Typography>
+                      <Typography variant="h6">{stats.relevant_percent}%</Typography>
+                    </Grid>
+                    <Grid item xs={6} sm={3}>
+                      <Typography variant="body2">처리 오류</Typography>
+                      <Typography variant="h6">{stats.processing_errors}개</Typography>
+                    </Grid>
+                  </Grid>
+                  
+                  {/* 카테고리별 통계 */}
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="body2" gutterBottom>카테고리별 분류:</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {Object.entries(stats.categories || {}).map(([category, count]) => (
+                        <Chip
+                          key={category}
+                          label={`${getCategoryIcon(category)} ${category}: ${count}개`}
+                          color={getCategoryColor(category)}
+                          size="small"
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 최근 처리된 기사 목록 */}
+            {recentArticles.length > 0 && (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  최근 처리된 기사 ({recentArticles.length}개)
+                </Typography>
+                
+                <List dense>
+                  {recentArticles.map((article) => (
+                    <ListItem key={article.id} divider>
+                      <ListItemText
+                        primary={
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                            <Typography variant="body2" sx={{ flex: 1, minWidth: 0 }}>
+                              {article.title}
+                            </Typography>
+                            <Chip
+                              label={`${getCategoryIcon(article.category)} ${article.category}`}
+                              color={getCategoryColor(article.category)}
+                              size="small"
+                            />
+                            {article.confidence && (
+                              <Chip
+                                label={`신뢰도: ${(article.confidence * 100).toFixed(1)}%`}
+                                variant="outlined"
+                                size="small"
+                              />
+                            )}
+                          </Box>
+                        }
+                        secondary={`처리 시간: ${article.timestamp}`}
+                      />
+                    </ListItem>
+                  ))}
+                </List>
+              </Box>
+            )}
+            
+            {!progress.isComplete && progress.total === 0 && (
+              <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
+                분석을 준비하고 있습니다...
+              </Typography>
             )}
           </Box>
-        </Paper>
-
-        {/* 현재 단계 정보 개선 */}
-        {stage && (
-          <Paper sx={{ p: 2, mb: 3, bgcolor: 'info.50', border: '1px solid', borderColor: 'info.200' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <ArticleIcon color="info" fontSize="small" />
-              <Typography variant="subtitle1" color="info.dark" fontWeight="medium">
-                {stage}
-              </Typography>
-            </Box>
-            {currentItem && (
-              <Typography variant="body2" color="text.secondary" sx={{ 
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
-              }}>
-                현재 처리중: {currentItem}
-              </Typography>
-            )}
-          </Paper>
-        )}
-
-        {/* 실시간 통계 개선 */}
-        {Object.keys(stats).length > 0 && (
-          <Paper sx={{ p: 2, mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom sx={{ color: 'primary.main', fontWeight: 'medium' }}>
-              실시간 분석 통계
-            </Typography>
-            <Grid container spacing={2}>
-              {stats.relevant_items !== undefined && (
-                <Grid item xs={6} sm={3}>
-                  <Box sx={{ textAlign: 'center', p: 1 }}>
-                    <Typography variant="h5" color="success.main" fontWeight="bold">
-                      {stats.relevant_items}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      관련 기사
-                    </Typography>
-                    <Typography variant="caption" color="success.main">
-                      ({getRelevanceRate()}%)
-                    </Typography>
-                  </Box>
-                </Grid>
-              )}
-              {stats.irrelevant_items !== undefined && (
-                <Grid item xs={6} sm={3}>
-                  <Box sx={{ textAlign: 'center', p: 1 }}>
-                    <Typography variant="h5" color="text.secondary" fontWeight="bold">
-                      {stats.irrelevant_items}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      비관련 기사
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      ({100 - getRelevanceRate()}%)
-                    </Typography>
-                  </Box>
-                </Grid>
-              )}
-              {stats.processing_rate !== undefined && (
-                <Grid item xs={6} sm={3}>
-                  <Box sx={{ textAlign: 'center', p: 1 }}>
-                    <Typography variant="h5" color="info.main" fontWeight="bold">
-                      {stats.processing_rate}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      기사/분
-                    </Typography>
-                    <Typography variant="caption" color="info.main">
-                      처리 속도
-                    </Typography>
-                  </Box>
-                </Grid>
-              )}
-              {stats.errors !== undefined && stats.errors > 0 && (
-                <Grid item xs={6} sm={3}>
-                  <Box sx={{ textAlign: 'center', p: 1 }}>
-                    <Typography variant="h5" color="error.main" fontWeight="bold">
-                      {stats.errors}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      오류 발생
-                    </Typography>
-                    <Typography variant="caption" color="error.main">
-                      문제 기사
-                    </Typography>
-                  </Box>
-                </Grid>
-              )}
-            </Grid>
-          </Paper>
-        )}
-
-        {/* 최근 처리된 항목들 개선 */}
-        {processedItems.length > 0 && (
-          <Paper sx={{ p: 2, mb: 3 }}>
-            <Typography variant="subtitle1" gutterBottom sx={{ color: 'primary.main', fontWeight: 'medium' }}>
-              최근 처리된 기사 (최대 5개)
-            </Typography>
-            <Divider sx={{ mb: 1 }} />
-            <List dense sx={{ maxHeight: 250, overflow: 'auto' }}>
-              {processedItems.slice(-5).reverse().map((item, index) => (
-                <ListItem key={index} sx={{ py: 1, px: 1, borderRadius: 1, '&:hover': { bgcolor: 'grey.50' } }}>
-                  <ListItemIcon sx={{ minWidth: 32 }}>
-                    <CheckCircleIcon color="success" fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      <Typography variant="body2" sx={{ 
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 'medium'
-                      }}>
-                        {item.title || `항목 ${item.index || index + 1}`}
-                      </Typography>
-                    }
-                    secondary={
-                      <Box sx={{ mt: 0.5 }}>
-                        {item.category && (
-                          <Chip 
-                            label={item.category} 
-                            size="small" 
-                            color={
-                              item.category.includes('자사') ? 'error' :
-                              item.category.includes('업계') ? 'primary' :
-                              item.category.includes('건기식') ? 'warning' : 'default'
-                            }
-                            variant="outlined"
-                          />
-                        )}
-                        {item.confidence && (
-                          <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
-                            신뢰도: {Math.round(item.confidence * 100)}%
-                          </Typography>
-                        )}
-                      </Box>
-                    }
-                  />
-                </ListItem>
-              ))}
-            </List>
-          </Paper>
-        )}
-
-        {/* 오류 목록 개선 */}
-        {errors.length > 0 && (
-          <Paper sx={{ p: 2, bgcolor: 'error.50', border: '1px solid', borderColor: 'error.200' }}>
-            <Typography variant="subtitle1" color="error.dark" gutterBottom fontWeight="medium">
-              오류 발생 ({errors.length}개)
-            </Typography>
-            <Divider sx={{ mb: 1, borderColor: 'error.200' }} />
-            <List dense sx={{ maxHeight: 200, overflow: 'auto' }}>
-              {errors.slice(-3).map((error, index) => (
-                <ListItem key={index} sx={{ py: 1, px: 1, borderRadius: 1 }}>
-                  <ListItemIcon sx={{ minWidth: 32 }}>
-                    <ErrorIcon color="error" fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      <Typography variant="body2" color="error.dark" fontWeight="medium">
-                        {error.message || error}
-                      </Typography>
-                    }
-                    secondary={error.item && (
-                      <Typography variant="caption" color="text.secondary">
-                        항목: {error.item}
-                      </Typography>
-                    )}
-                  />
-                </ListItem>
-              ))}
-            </List>
-          </Paper>
-        )}
-
-        {/* 로딩 상태 표시 개선 */}
-        {current === 0 && total === 0 && (
-          <Paper sx={{ p: 4, textAlign: 'center', bgcolor: 'grey.50' }}>
-            <CircularProgress size={60} sx={{ mb: 2 }} />
-            <Typography variant="h6" color="primary" gutterBottom>
-              분석 준비 중
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              AI 모델을 초기화하고 분석을 준비하고 있습니다...
-            </Typography>
-          </Paper>
         )}
       </DialogContent>
+      
+      <DialogActions>
+        <Button 
+          onClick={handleClose}
+          variant={progress.isComplete ? "contained" : "outlined"}
+          disabled={!progress.isComplete && !progress.error}
+        >
+          {progress.isComplete ? '확인' : progress.error ? '닫기' : '대기 중...'}
+        </Button>
+      </DialogActions>
     </Dialog>
   );
 };

@@ -2,7 +2,10 @@
 # -*- coding: utf-8 -*-
 
 """
-개선된 관련성 분석 서비스
+최적화된 관련성 분석 서비스
+- 로깅 최적화
+- 배치 처리 개선
+- 메모리 사용량 최적화
 """
 
 import json
@@ -11,14 +14,15 @@ import logging
 from typing import List, Dict, Any, Tuple, Optional
 from app.services.ai_client import AIClientFactory
 from app.services.file_service import file_service
-from app.common.progress import progress_tracker
 from app.common.exceptions import AnalysisError, ValidationError
+from app.websocket.manager import manager
+from app.utils.data_processor import data_processor
 
 logger = logging.getLogger(__name__)
 
 
 class NewsAnalysisService:
-    """뉴스 관련성 분석 서비스"""
+    """최적화된 뉴스 관련성 분석 서비스"""
     
     def __init__(self):
         self.default_categories = {
@@ -27,43 +31,39 @@ class NewsAnalysisService:
             "건기식펫푸드관련기사": 0,
             "기타": 0
         }
+        # 로깅 설정
+        self.verbose_logging = logger.isEnabledFor(logging.DEBUG)
+        self.progress_log_interval = 10  # 진행률 로그 간격
+        self.console_log_interval = 5    # 콘솔 출력 간격
     
-    def analyze_news_batch(
+    async def analyze_news_batch(
         self,
         file_path: str,
         api_key: str,
         model: str = "gpt-4.1-nano",
         prompt_template=None,
-        session_id: Optional[str] = None
+        session_id: str = None
     ) -> Tuple[str, Dict[str, Any]]:
-        """뉴스 배치 분석"""
-        
-        # 세션 ID 생성
-        if not session_id:
-            session_id = f"analysis_{int(time.time())}"
+        """최적화된 뉴스 배치 분석"""
         
         try:
-            # 1. 파일 로드
+            # 1. 초기화 및 파일 로드
             logger.info(f"뉴스 분석 시작: {file_path}, 모델: {model}")
-            print(f"\n=== 관련성 평가 시작 ===")
-            print(f"파일: {file_path}")
-            print(f"AI 모델: {model}")
-            print(f"세션 ID: {session_id}")
+            if self.verbose_logging:
+                print(f"\n=== 관련성 평가 시작 ===")
+                print(f"파일: {file_path}")
+                print(f"AI 모델: {model}")
+            
             news_data = file_service.load_news_data(file_path)
             
             if not news_data:
                 raise ValidationError("파일에서 뉴스 데이터를 찾을 수 없습니다.")
             
-            print(f"총 {len(news_data)}개 기사 로드 완료")
+            total_count = len(news_data)
+            logger.info(f"총 {total_count}개 기사 로드 완료")
             
             # 2. AI 클라이언트 생성
-            progress_tracker.update_progress(
-                session_id, 0, len(news_data), 'AI 클라이언트 초기화', ''
-            )
-            print(f"AI 클라이언트 초기화 중: {model}")
-            
             ai_client = AIClientFactory.create_client(model, api_key)
-            print(f"AI 클라이언트 초기화 완료")
             
             # 3. 프롬프트 준비
             compiled_prompt = None
@@ -72,198 +72,119 @@ class NewsAnalysisService:
                 logger.info(f"사용 프롬프트: {prompt_template.name}")
             
             # 4. 배치 분석 수행
-            analyzed_data, stats = self._analyze_batch(
+            analyzed_data, stats = await self._analyze_batch_optimized(
                 news_data, ai_client, model, compiled_prompt, session_id
             )
             
             # 5. 결과 저장
-            original_name = file_service.generate_timestamped_filename(
-                file_path, suffix="analyzed"
-            )
-            
-            result_path = file_service.save_excel_data(
-                analyzed_data, original_name, folder="relevance"
-            )
-            
-            # 6. 다운로드 폴더 복사
-            download_path = file_service.copy_to_downloads(result_path)
-            
-            # 7. 진행상황 정리
-            progress_tracker.cleanup_session(session_id)
+            result_path = self._save_analysis_results(analyzed_data, file_path)
             
             logger.info(f"뉴스 분석 완료: {stats['relevant_items']}/{stats['total_items']} 관련")
-            print(f"\n결과 파일 저장 완료: {result_path}")
-            print(f"다운로드 폴더 복사 완룉: {download_path}")
             
             return result_path, stats
             
         except Exception as e:
-            progress_tracker.update_progress(
-                session_id, 0, 0, '분석 중 오류 발생', '', None, None, str(e)
-            )
+            logger.error(f"뉴스 분석 실패: {str(e)}")
             raise
     
-    def _analyze_batch(
+    async def _analyze_batch_optimized(
         self,
         news_data: List[Dict[str, Any]],
         ai_client,
         model: str,
         compiled_prompt: Optional[str],
-        session_id: str
+        session_id: Optional[str] = None
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """실제 배치 분석 수행"""
+        """최적화된 배치 분석 수행"""
         
+        total_items = len(news_data)
         analyzed_data = []
+        
+        # 통계 초기화
         stats = {
-            "total_items": len(news_data),
+            "total_items": total_items,
             "relevant_items": 0,
             "categories": self.default_categories.copy(),
             "processing_errors": 0
         }
         
         start_time = time.time()
+        last_log_time = start_time
         
         for i, news_item in enumerate(news_data):
+            current_index = i + 1
+            
             try:
-                current_index = i + 1
-                title = news_item.get("title", news_item.get("제목", ""))
-                content = news_item.get("description", news_item.get("content", news_item.get("내용", "")))
+                # 제목과 내용 추출
+                title, content = data_processor.extract_text_content(news_item)
                 
-                # 진행상황 업데이트 및 로그 출력
-                elapsed_time = time.time() - start_time
-                processing_rate = current_index / (elapsed_time / 60) if elapsed_time > 0 else 0
+                # 진행률 로깅 (간격 조절)
+                current_time = time.time()
+                if (current_index % self.progress_log_interval == 0 or 
+                    current_index == total_items or 
+                    current_time - last_log_time > 30):  # 30초마다 강제 로그
+                    
+                    self._log_progress(current_index, total_items, start_time)
+                    last_log_time = current_time
                 
-                current_stats = {
-                    'relevant_items': stats['relevant_items'],
-                    'irrelevant_items': current_index - 1 - stats['relevant_items'],
-                    'errors': stats['processing_errors'],
-                    'processing_rate': round(processing_rate, 1)
-                }
-                
-                # 백엔드 진행도 로그 출력 (매 10번째 기사마다 또는 마지막 기사)
-                if current_index % 10 == 0 or current_index == len(news_data):
-                    print(f"\n[관련성 평가 진행도] {current_index-1}/{len(news_data)} ({round((current_index-1)/len(news_data)*100, 1)}%) - 처리 속도: {round(processing_rate, 1)}기사/분")
-                
-                progress_tracker.update_progress(
-                    session_id,
-                    current_index - 1,
-                    len(news_data),
-                    f'기사 분석 중 ({current_index}/{len(news_data)})',
-                    title[:50] if title else f'기사 {current_index}',
-                    current_stats
-                )
+                # WebSocket 진행률 전송 (모든 기사)
+                if session_id:
+                    await manager.send_progress_update(
+                        session_id=session_id,
+                        current=current_index - 1,
+                        total=total_items,
+                        article_title=title[:100]  # 제목 길이 제한
+                    )
                 
                 # 분석 수행
                 if not title and not content:
-                    logger.warning(f"제목과 내용이 모두 비어있는 기사: {i}")
-                    analysis_result = self._get_default_result()
+                    analysis_result = data_processor._get_default_analysis_result()
                 else:
-                    analysis_result = self._analyze_single_item(
+                    analysis_result = self._analyze_single_item_optimized(
                         title, content, ai_client, model, compiled_prompt
                     )
                 
-                # 결과 병합
-                news_item_analyzed = news_item.copy()
-                news_item_analyzed.update(analysis_result)
-                analyzed_data.append(news_item_analyzed)
+                # 결과 병합 (메모리 효율적)
+                analyzed_item = {**news_item, **analysis_result}
+                analyzed_data.append(analyzed_item)
                 
                 # 통계 업데이트
-                category = analysis_result["category"]
-                if category != "기타":
-                    stats["relevant_items"] += 1
+                self._update_stats(stats, analysis_result)
                 
-                if category in stats["categories"]:
-                    stats["categories"][category] += 1
-                else:
-                    stats["categories"]["기타"] += 1
+                # 콘솔 출력 (간격 조절)
+                if current_index % self.console_log_interval == 0 or current_index == total_items:
+                    self._log_analysis_result(current_index, total_items, analysis_result)
                 
-                # 완료 진행상황 업데이트 및 로그 출력
-                final_stats = {
-                    'relevant_items': stats['relevant_items'],
-                    'irrelevant_items': current_index - stats['relevant_items'],
-                    'errors': stats['processing_errors'],
-                    'processing_rate': round(processing_rate, 1)
-                }
+                # WebSocket 완료 상태 전송
+                if session_id:
+                    await manager.send_progress_update(
+                        session_id=session_id,
+                        current=current_index,
+                        total=total_items,
+                        category=analysis_result['category'],
+                        confidence=analysis_result.get('confidence', 0),
+                        article_title=title[:100]
+                    )
                 
-                # 기사 분석 완료 로그 출력 (카테고리별 분류 결과 포함) - 매 5번째 기사마다
-                if current_index % 5 == 0 or current_index == len(news_data):
-                    print(f"[관련성 평가 완료] {current_index}/{len(news_data)} ({round(current_index/len(news_data)*100, 1)}%) - 카테고리: {analysis_result['category']} (신뢰도: {round(analysis_result.get('confidence', 0)*100, 1)}%)")
-                
-                progress_tracker.update_progress(
-                    session_id,
-                    current_index,
-                    len(news_data),
-                    f'기사 분석 중 ({current_index}/{len(news_data)})',
-                    '',
-                    final_stats,
-                    news_item_analyzed
-                )
-                
-                # API 제한 대응
+                # API 제한 대응 (간소화)
                 time.sleep(0.5)
                 
             except Exception as e:
-                error_msg = f"뉴스 항목 {i} 분석 실패: {str(e)}"
-                logger.error(error_msg)
-                stats["processing_errors"] += 1
-                
-                # 오류 발생 로그 출력
-                print(f"[관련성 평가 오류] {current_index}/{len(news_data)} - 오류: {str(e)[:100]}")
-                
-                # 기본값으로 결과 생성
-                news_item_analyzed = news_item.copy()
-                news_item_analyzed.update(self._get_default_result())
-                analyzed_data.append(news_item_analyzed)
-                stats["categories"]["기타"] += 1
-                
-                progress_tracker.update_progress(
-                    session_id,
-                    current_index,
-                    len(news_data),
-                    '오류 발생',
-                    title[:50] if title else f'기사 {current_index}',
-                    None,
-                    None,
-                    str(e)
-                )
+                self._handle_analysis_error(e, current_index, news_item, analyzed_data, stats)
         
         # 최종 통계 계산
-        stats["relevant_ratio"] = stats["relevant_items"] / stats["total_items"] if stats["total_items"] > 0 else 0
-        stats["relevant_percent"] = round(stats["relevant_ratio"] * 100, 1)
+        self._finalize_stats(stats, start_time)
         
-        # 완료 상태 업데이트
-        final_stats = {
-            'relevant_items': stats['relevant_items'],
-            'irrelevant_items': stats['total_items'] - stats['relevant_items'],
-            'errors': stats['processing_errors'],
-            'processing_rate': round(len(news_data) / ((time.time() - start_time) / 60), 1)
-        }
+        # 완료 메시지
+        if self.verbose_logging:
+            self._print_final_summary(stats, start_time)
         
-        # 최종 완료 로그 출력
-        print(f"\n=== 관련성 평가 최종 완료 ===")
-        print(f"총 처리 기사: {stats['total_items']}개")
-        print(f"관련 기사: {stats['relevant_items']}개 ({stats['relevant_percent']}%)")
-        print(f"비관련 기사: {stats['total_items'] - stats['relevant_items']}개")
-        print(f"오류 발생: {stats['processing_errors']}개")
-        print(f"카테고리별 분류:")
-        for category, count in stats['categories'].items():
-            print(f"  - {category}: {count}개")
-        print(f"평균 처리 속도: {final_stats['processing_rate']}기사/분")
-        print(f"총 소요 시간: {round((time.time() - start_time) / 60, 1)}분")
-        print("=" * 40)
-        
-        progress_tracker.update_progress(
-            session_id,
-            len(news_data),
-            len(news_data),
-            '분석 완료',
-            '',
-            final_stats
-        )
+        if session_id:
+            await manager.send_completion_message(session_id, stats)
         
         return analyzed_data, stats
     
-    def _analyze_single_item(
+    def _analyze_single_item_optimized(
         self,
         title: str,
         content: str,
@@ -271,36 +192,47 @@ class NewsAnalysisService:
         model: str,
         compiled_prompt: Optional[str]
     ) -> Dict[str, Any]:
-        """단일 뉴스 항목 분석"""
+        """최적화된 단일 뉴스 항목 분석"""
         try:
-            prompt = self._prepare_prompt(title, content, compiled_prompt)
+            prompt = self._prepare_prompt_optimized(title, content, compiled_prompt)
             response_text = ai_client.analyze(prompt, model=model)
             
-            logger.debug(f"AI 응답: {repr(response_text)}")
-            return self._parse_json_response(response_text)
+            # 최적화된 JSON 파싱 사용
+            return data_processor.safe_json_parse(response_text)
             
         except Exception as e:
-            logger.error(f"단일 항목 분석 실패: {str(e)}")
-            return self._get_default_result()
+            if self.verbose_logging:
+                logger.error(f"단일 항목 분석 실패: {str(e)}")
+            return data_processor._get_default_analysis_result()
     
-    def _prepare_prompt(self, title: str, content: str, compiled_prompt: Optional[str] = None) -> str:
-        """프롬프트 준비"""
+    def _prepare_prompt_optimized(self, title: str, content: str, 
+                                 compiled_prompt: Optional[str] = None) -> str:
+        """최적화된 프롬프트 준비"""
+        # 텍스트 길이 제한 (성능 향상)
+        title_truncated = title[:300] if title else ""
+        content_truncated = content[:1500] if content else ""
+        
         if compiled_prompt:
             if '{title}' in compiled_prompt and '{content}' in compiled_prompt:
-                return compiled_prompt.format(title=title[:500], content=content[:2000])
+                return compiled_prompt.format(
+                    title=title_truncated, 
+                    content=content_truncated
+                )
             else:
                 return f"""{compiled_prompt}
 
 분석할 뉴스 기사:
-제목: {title[:500]}
-내용: {content[:2000]}"""
+제목: {title_truncated}
+내용: {content_truncated}"""
         else:
-            return self._get_default_prompt().format(title=title[:500], content=content[:2000])
+            return self._get_default_prompt().format(
+                title=title_truncated, 
+                content=content_truncated
+            )
     
     def _get_default_prompt(self) -> str:
         """기본 프롬프트 반환"""
-        return """
-당신은 코스맥스의 화장품 업계 전문 분석가입니다. 주어진 뉴스 기사를 분석하여 다음 4개 카테고리로 분류해주세요.
+        return """당신은 코스맥스의 화장품 업계 전문 분석가입니다. 주어진 뉴스 기사를 분석하여 다음 4개 카테고리로 분류해주세요.
 
 분석 기준:
 1. 자사언급기사: '코스맥스', '코스맥스엔비티'가 직접 언급된 기사
@@ -317,64 +249,84 @@ class NewsAnalysisService:
 
 뉴스 기사:
 제목: {title}
-내용: {content}
-"""
+내용: {content}"""
     
-    def _parse_json_response(self, response_text: str) -> Dict[str, Any]:
-        """JSON 응답 파싱"""
-        try:
-            # 코드 블록 제거
-            if "```json" in response_text:
-                response_text = response_text.split("```json")[1].split("```")[0]
-            elif "```" in response_text:
-                for part in response_text.split("```"):
-                    if "{" in part and "}" in part:
-                        response_text = part
-                        break
-            
-            # JSON 객체 추출
-            start_idx = response_text.find('{')
-            end_idx = response_text.rfind('}')
-            
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                response_text = response_text[start_idx:end_idx + 1]
-            
-            result = json.loads(response_text.strip())
-            
-            # 필수 필드 검증 및 기본값 설정
-            result.setdefault("category", "기타")
-            result.setdefault("confidence", 0.5)
-            result.setdefault("keywords", [])
-            
-            # 카테고리명 정규화
-            category_mapping = {
-                "자사 언급기사": "자사언급기사",
-                "업계 관련기사": "업계관련기사",
-                "건기식·펫푸드 관련기사": "건기식펫푸드관련기사",
-                "건강기능식품·펫푸드": "건기식펫푸드관련기사",
-            }
-            
-            if result["category"] in category_mapping:
-                result["category"] = category_mapping[result["category"]]
-            
-            # confidence 값 검증
-            confidence = result["confidence"]
-            if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
-                result["confidence"] = 0.5
-            
-            return result
-            
-        except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"JSON 파싱 실패, 기본값 반환: {str(e)}")
-            return self._get_default_result()
+    def _update_stats(self, stats: Dict[str, Any], analysis_result: Dict[str, Any]):
+        """통계 업데이트"""
+        category = analysis_result["category"]
+        if category != "기타":
+            stats["relevant_items"] += 1
+        
+        if category in stats["categories"]:
+            stats["categories"][category] += 1
+        else:
+            stats["categories"]["기타"] += 1
     
-    def _get_default_result(self) -> Dict[str, Any]:
-        """기본 분석 결과 반환"""
-        return {
-            "category": "기타",
-            "confidence": 0.0,
-            "keywords": []
-        }
+    def _handle_analysis_error(self, error: Exception, current_index: int, 
+                              news_item: Dict[str, Any], analyzed_data: List[Dict[str, Any]], 
+                              stats: Dict[str, Any]):
+        """분석 오류 처리"""
+        logger.error(f"뉴스 항목 {current_index} 분석 실패: {str(error)}")
+        stats["processing_errors"] += 1
+        
+        # 기본값으로 결과 생성
+        default_result = data_processor._get_default_analysis_result()
+        analyzed_item = {**news_item, **default_result}
+        analyzed_data.append(analyzed_item)
+        stats["categories"]["기타"] += 1
+    
+    def _log_progress(self, current: int, total: int, start_time: float):
+        """진행률 로깅"""
+        elapsed_time = time.time() - start_time
+        processing_rate = current / (elapsed_time / 60) if elapsed_time > 0 else 0
+        progress_percent = round((current / total) * 100, 1)
+        
+        logger.info(f"진행률: {current}/{total} ({progress_percent}%) - "
+                   f"처리 속도: {round(processing_rate, 1)}기사/분")
+    
+    def _log_analysis_result(self, current: int, total: int, analysis_result: Dict[str, Any]):
+        """분석 결과 로깅"""
+        if self.verbose_logging:
+            progress_percent = round((current / total) * 100, 1)
+            confidence = round(analysis_result.get('confidence', 0) * 100, 1)
+            print(f"[분석 완료] {current}/{total} ({progress_percent}%) - "
+                  f"카테고리: {analysis_result['category']} (신뢰도: {confidence}%)")
+    
+    def _finalize_stats(self, stats: Dict[str, Any], start_time: float):
+        """최종 통계 계산"""
+        stats["relevant_ratio"] = (stats["relevant_items"] / stats["total_items"] 
+                                  if stats["total_items"] > 0 else 0)
+        stats["relevant_percent"] = round(stats["relevant_ratio"] * 100, 1)
+        stats["processing_time"] = round((time.time() - start_time) / 60, 1)
+    
+    def _print_final_summary(self, stats: Dict[str, Any], start_time: float):
+        """최종 요약 출력"""
+        processing_time = round((time.time() - start_time) / 60, 1)
+        processing_rate = round(stats['total_items'] / processing_time, 1) if processing_time > 0 else 0
+        
+        print(f"\n=== 관련성 평가 완료 ===")
+        print(f"총 처리: {stats['total_items']}개")
+        print(f"관련 기사: {stats['relevant_items']}개 ({stats['relevant_percent']}%)")
+        print(f"오류: {stats['processing_errors']}개")
+        print(f"소요 시간: {processing_time}분")
+        print(f"처리 속도: {processing_rate}기사/분")
+        print("=" * 30)
+    
+    def _save_analysis_results(self, analyzed_data: List[Dict[str, Any]], 
+                              original_file_path: str) -> str:
+        """분석 결과 저장"""
+        original_name = file_service.generate_timestamped_filename(
+            original_file_path, suffix="analyzed"
+        )
+        
+        result_path = file_service.save_excel_data(
+            analyzed_data, original_name, folder="relevance"
+        )
+        
+        # 다운로드 폴더 복사
+        file_service.copy_to_downloads(result_path)
+        
+        return result_path
 
 
 # 전역 인스턴스
