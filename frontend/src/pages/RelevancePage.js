@@ -87,6 +87,49 @@ const RelevancePage = () => {
     loadPrompts();
   }, []);
   
+  // WebSocket 완료 메시지 처리
+  useEffect(() => {
+    const handleAnalysisComplete = (stats, autoNavigate = false) => {
+      console.log('🎉 WebSocket을 통해 분석 완료 수신:', stats);
+      
+      setAlert({
+        open: true,
+        type: 'success',
+        title: '관련성 평가 완료',
+        message: `뉴스 기사의 관련성 평가가 완룈되었습니다. 관련 뉴스: ${stats.relevant_items}/${stats.total_items} (${stats.relevant_percent}%) - "확인" 버튼을 눌러 결과를 확인하세요.`,
+      });
+      
+      // 자동 이동 제거 - 사용자가 ProgressDialog에서 "확인" 버튼을 누를 때만 이동
+      window.analysisResult = {
+        success: true,
+        stats: stats,
+        message: '분석 완료'
+      };
+    };
+    
+    // 결과 페이지 이동 함수
+    const navigateToResults = (result) => {
+      console.log('📊 결과 페이지로 이동:', result);
+      navigate('/results', {
+        state: {
+          evaluationResult: result,
+          fromRelevance: true
+        }
+      });
+    };
+    
+    // 전역 함수로 등록
+    window.showSuccessAlert = handleAnalysisComplete;
+    window.navigateToResults = navigateToResults;
+    
+    // 컴포넌트 언마운트 시 정리
+    return () => {
+      delete window.showSuccessAlert;
+      delete window.analysisResult;
+      delete window.navigateToResults;
+    };
+  }, [navigate]);
+  
   // 크롤러 페이지에서 전달된 데이터 처리
   useEffect(() => {
     if (location.state?.crawlResult && location.state?.fromCrawler) {
@@ -201,7 +244,7 @@ const RelevancePage = () => {
       });
       
       // 4. 약간의 지연으로 React 상태가 완전히 업데이트되도록 보장
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 1000)); // 1초로 증가
       
       // 5. 프롬프트 ID 포함한 요청 데이터
       const requestData = {
@@ -213,32 +256,41 @@ const RelevancePage = () => {
       };
       
       console.log('📤 API 요청 시작:', requestData);
-      const result = await relevanceService.evaluateNews(requestData);
       
-      if (result.success) {
-        setAlert({
-          open: true,
-          type: 'success',
-          title: '관련성 평가 완료',
-          message: `뉴스 기사의 관련성 평가가 완료되었습니다. 관련 뉴스: ${result.stats.relevant_items}/${result.stats.total_items} (${result.stats.relevant_percent}%)`,
-        });
-        
-        // 결과 페이지로 이동 (3초 후)
-        setTimeout(() => {
-          navigate('/results', { 
-            state: { 
-              evaluationResult: result,
-              fromRelevance: true
-            }
+      // 6. API 요청을 비동기로 시작 (결과를 기다리지 않음)
+      relevanceService.evaluateNews(requestData)
+        .then(result => {
+          console.log('📊 API 응답 수신:', result);
+          
+          if (result.success) {
+            // WebSocket을 통해 완료 메시지가 올 때까지 기다림
+            console.log('✅ API 요청 성공 - WebSocket 완료 메시지 대기 중...');
+          } else {
+            setAlert({
+              open: true,
+              type: 'error',
+              message: `관련성 평가에 실패했습니다: ${result.message}`,
+            });
+            setLoading(false);
+            setShowProgress(false);
+            setSessionId(null);
+          }
+        })
+        .catch(error => {
+          console.error('❌ API 요청 오류:', error);
+          setAlert({
+            open: true,
+            type: 'error',
+            message: `오류가 발생했습니다: ${error.message}`,
           });
-        }, 3000);
-      } else {
-        setAlert({
-          open: true,
-          type: 'error',
-          message: `관련성 평가에 실패했습니다: ${result.message}`,
+          setLoading(false);
+          setShowProgress(false);
+          setSessionId(null);
         });
-      }
+      
+      // 7. API 요청을 시작한 후 바로 리턴 (완료를 기다리지 않음)
+      console.log('🔄 API 요청 시작됨 - WebSocket을 통한 진행도 업데이트 대기 중...');
+      
     } catch (error) {
       console.error('❌ 관련성 평가 중 오류:', error);
       setAlert({
@@ -246,9 +298,11 @@ const RelevancePage = () => {
         type: 'error',
         message: `오류가 발생했습니다: ${error.message}`,
       });
-    } finally {
-      setLoading(false);
+      setLoading(false); // 오류 시에만 loading 해제
+      setShowProgress(false);
+      setSessionId(null);
     }
+    // finally 블록 제거 - ProgressDialog에서 완료 시 loading 해제
   };
 
   return (
@@ -522,14 +576,17 @@ const RelevancePage = () => {
         message="분석을 준비하고 있습니다..."
       />
       
-      <ProgressDialog
-        open={showProgress}
-        onClose={() => {
-          setShowProgress(false);
-          setSessionId(null);
-        }}
-        sessionId={sessionId}
-      />
+      {showProgress && sessionId && (
+        <ProgressDialog
+          open={showProgress}
+          onClose={() => {
+            setShowProgress(false);
+            setSessionId(null);
+            setLoading(false); // ProgressDialog 닫힐 때 loading 해제
+          }}
+          sessionId={sessionId}
+        />
+      )}
     </Box>
   );
 };

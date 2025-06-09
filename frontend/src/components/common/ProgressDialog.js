@@ -60,7 +60,10 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
       wsRef.current.onopen = () => {
         console.log('✅ WebSocket 연결 성공:', sessionId);
         // 연결 확인 메시지 전송
-        wsRef.current.send(JSON.stringify({ type: 'ping', sessionId }));
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: 'ping', sessionId }));
+          console.log('🏓 Ping 메시지 전송 완료');
+        }
       };
       
       wsRef.current.onmessage = (event) => {
@@ -70,13 +73,20 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
           const data = JSON.parse(event.data);
           console.log('📊 파싱된 데이터:', data);
           
+          // 즉시 처리를 위해 setTimeout 사용 안함
           switch (data.type) {
             case 'connection_established':
               console.log('🔗 연결 확인됨');
               break;
               
+            case 'pong':
+              console.log('🏓 Pong 응답 수신');
+              break;
+              
             case 'progress_update':
               console.log(`🔄 진행률 업데이트: ${data.current}/${data.total} (${data.percentage}%)`);
+              
+              // 즉시 업데이트
               setProgress({
                 current: data.current,
                 total: data.total,
@@ -89,7 +99,7 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
               if (data.article_title && data.category) {
                 setRecentArticles(prev => {
                   const newArticle = {
-                    id: Date.now(),
+                    id: Date.now() + Math.random(), // 고유 ID 보장
                     title: data.article_title,
                     category: data.category,
                     confidence: data.confidence,
@@ -110,6 +120,14 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
                 isComplete: true
               }));
               setStats(data.stats);
+              
+              // 성공 알림 표시 (자동 이동 제거)
+              setTimeout(() => {
+                // 부모 컴포넌트에서 alert 설정하도록 커스텀 이벤트 발송
+                if (window.showSuccessAlert) {
+                  window.showSuccessAlert(data.stats, false); // 자동 이동 비활성화
+                }
+              }, 1000);
               break;
               
             case 'error':
@@ -167,7 +185,7 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
     const connectTimeout = setTimeout(() => {
       console.log('🚀 WebSocket 연결 시도 시작');
       connectWebSocket();
-    }, 300); // 300ms로 단축
+    }, 500); // 500ms로 증가
 
     // 컴포넌트 언마운트 시 WebSocket 연결 해제
     return () => {
@@ -178,7 +196,7 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
         wsRef.current = null;
       }
     };
-  }, [open, sessionId, connectWebSocket]); // connectWebSocket 의존성 추가
+  }, [open, sessionId]); // connectWebSocket 의존성 제거
 
   // 다이얼로그 닫기 시 상태 초기화
   const handleClose = () => {
@@ -194,7 +212,16 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
     });
     setRecentArticles([]);
     setStats(null);
-    onClose();
+    
+    // 분석 완료 시 결과 페이지로 이동
+    if (progress.isComplete && window.analysisResult) {
+      // 부모 컴포넌트에서 navigate 호출
+      if (window.navigateToResults) {
+        window.navigateToResults(window.analysisResult);
+      }
+    }
+    
+    onClose(); // 부모 컴포넌트에서 loading 상태 해제하도록 전달
   };
 
   const getCategoryColor = (category) => {
@@ -239,15 +266,15 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
         {progress.isComplete ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <CheckCircleIcon color="success" />
-            <Typography variant="h6">관련성 평가 완료!</Typography>
+            <Typography variant="h6" component="span">관련성 평가 완료!</Typography>
           </Box>
         ) : progress.error ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <ErrorIcon color="error" />
-            <Typography variant="h6">오류 발생</Typography>
+            <Typography variant="h6" component="span">오류 발생</Typography>
           </Box>
         ) : (
-          <Typography variant="h6">관련성 평가 진행 중...</Typography>
+          <Typography variant="h6" component="span">관련성 평가 진행 중...</Typography>
         )}
       </DialogTitle>
       

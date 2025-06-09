@@ -111,6 +111,19 @@ class NewsAnalysisService:
         start_time = time.time()
         last_log_time = start_time
         
+        # 분석 시작 알림 - total 개수 미리 전송
+        if session_id:
+            try:
+                await manager.send_progress_update(
+                    session_id=session_id,
+                    current=0,
+                    total=total_items,
+                    article_title="분석 시작"
+                )
+                logger.info(f"분석 시작 메시지 전송: 0/{total_items}")
+            except Exception as ws_error:
+                logger.warning(f"분석 시작 메시지 전송 실패: {ws_error}")
+        
         for i, news_item in enumerate(news_data):
             current_index = i + 1
             
@@ -129,12 +142,17 @@ class NewsAnalysisService:
                 
                 # WebSocket 진행률 전송 (모든 기사)
                 if session_id:
-                    await manager.send_progress_update(
-                        session_id=session_id,
-                        current=current_index - 1,
-                        total=total_items,
-                        article_title=title[:100]  # 제목 길이 제한
-                    )
+                    try:
+                        await manager.send_progress_update(
+                            session_id=session_id,
+                            current=current_index - 1,
+                            total=total_items,
+                            article_title=title[:100]  # 제목 길이 제한
+                        )
+                        if current_index % 1 == 0:  # 모든 기사마다 로그
+                            logger.info(f"WebSocket 진행률 전송: {current_index-1}/{total_items}")
+                    except Exception as ws_error:
+                        logger.warning(f"WebSocket 메시지 전송 실패: {ws_error}")
                 
                 # 분석 수행
                 if not title and not content:
@@ -157,17 +175,22 @@ class NewsAnalysisService:
                 
                 # WebSocket 완료 상태 전송
                 if session_id:
-                    await manager.send_progress_update(
-                        session_id=session_id,
-                        current=current_index,
-                        total=total_items,
-                        category=analysis_result['category'],
-                        confidence=analysis_result.get('confidence', 0),
-                        article_title=title[:100]
-                    )
+                    try:
+                        await manager.send_progress_update(
+                            session_id=session_id,
+                            current=current_index,
+                            total=total_items,
+                            category=analysis_result['category'],
+                            confidence=analysis_result.get('confidence', 0),
+                            article_title=title[:100]
+                        )
+                        if current_index % 1 == 0:  # 모든 기사마다 로그
+                            logger.info(f"WebSocket 완료 전송: {current_index}/{total_items} - {analysis_result['category']}")
+                    except Exception as ws_error:
+                        logger.warning(f"WebSocket 완료 메시지 전송 실패: {ws_error}")
                 
-                # API 제한 대응 (간소화)
-                time.sleep(0.5)
+                # API 제한 대응 (간소화) - WebSocket 전송 후로 이동
+                time.sleep(0.3)  # 0.3초로 단축
                 
             except Exception as e:
                 self._handle_analysis_error(e, current_index, news_item, analyzed_data, stats)
@@ -180,7 +203,11 @@ class NewsAnalysisService:
             self._print_final_summary(stats, start_time)
         
         if session_id:
-            await manager.send_completion_message(session_id, stats)
+            try:
+                await manager.send_completion_message(session_id, stats)
+                logger.info(f"WebSocket 최종 완료 메시지 전송: session_id={session_id}")
+            except Exception as ws_error:
+                logger.error(f"WebSocket 최종 메시지 전송 실패: {ws_error}")
         
         return analyzed_data, stats
     

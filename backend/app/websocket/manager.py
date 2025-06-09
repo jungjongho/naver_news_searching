@@ -7,6 +7,7 @@ WebSocket 연결 관리자
 
 import json
 import logging
+import asyncio
 from typing import Dict, List
 from fastapi import WebSocket
 
@@ -44,19 +45,35 @@ class ConnectionManager:
     
     async def send_personal_message(self, message: dict, session_id: str):
         """특정 세션에 메시지 전송"""
-        if session_id in self.active_connections:
-            # 연결이 끊어진 websocket들을 제거하기 위한 리스트
-            active_websockets = []
+        logger.info(f"📤 WebSocket 메시지 전송 시도: session_id={session_id}, type={message.get('type', 'unknown')}")
+        
+        if session_id not in self.active_connections:
+            logger.warning(f"⚠️ 세션 연결이 없음: session_id={session_id}")
+            return
+        
+        if not self.active_connections[session_id]:
+            logger.warning(f"⚠️ 세션에 활성 연결이 없음: session_id={session_id}")
+            return
             
-            for websocket in self.active_connections[session_id]:
-                try:
-                    await websocket.send_text(json.dumps(message, ensure_ascii=False))
-                    active_websockets.append(websocket)
-                except Exception as e:
-                    logger.warning(f"WebSocket 메시지 전송 실패: {e}")
-            
-            # 활성 연결만 유지
-            self.active_connections[session_id] = active_websockets
+        # 연결이 끊어진 websocket들을 제거하기 위한 리스트
+        active_websockets = []
+        message_json = json.dumps(message, ensure_ascii=False)
+        
+        for websocket in self.active_connections[session_id]:
+            try:
+                await websocket.send_text(message_json)
+                # 즉시 flush를 위해 짧은 대기
+                await asyncio.sleep(0.001)  # 1ms 대기로 즉시 전송
+                active_websockets.append(websocket)
+                logger.info(f"✅ WebSocket 메시지 전송 성공: session_id={session_id}")
+            except Exception as e:
+                logger.warning(f"❌ WebSocket 메시지 전송 실패: session_id={session_id}, error={e}")
+        
+        # 활성 연결만 유지
+        self.active_connections[session_id] = active_websockets
+        
+        if not active_websockets:
+            logger.warning(f"⚠️ 모든 WebSocket 연결이 실패함: session_id={session_id}")
     
     async def send_progress_update(self, session_id: str, current: int, total: int, 
                                   category: str = None, confidence: float = None, 
@@ -72,6 +89,7 @@ class ConnectionManager:
             "article_title": article_title[:100] + "..." if article_title and len(article_title) > 100 else article_title
         }
         
+        logger.info(f"📊 진행률 업데이트 전송: {current}/{total} ({progress_data['percentage']}%) - {session_id}")
         await self.send_personal_message(progress_data, session_id)
     
     async def send_completion_message(self, session_id: str, stats: dict):
@@ -81,6 +99,7 @@ class ConnectionManager:
             "stats": stats
         }
         
+        logger.info(f"🎉 분석 완료 메시지 전송: session_id={session_id}")
         await self.send_personal_message(completion_data, session_id)
     
     async def send_error_message(self, session_id: str, error_message: str):
@@ -90,6 +109,7 @@ class ConnectionManager:
             "message": error_message
         }
         
+        logger.error(f"❌ 오류 메시지 전송: session_id={session_id}, error={error_message}")
         await self.send_personal_message(error_data, session_id)
 
 
