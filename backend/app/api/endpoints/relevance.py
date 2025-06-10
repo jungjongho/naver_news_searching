@@ -13,6 +13,9 @@ from app.services.news_analysis_service import news_analysis_service
 from app.services.prompt_service import PromptService
 from app.common.exceptions import NewsSearchException
 
+# 전역 중지 상태 관리
+stop_flags = {}
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -45,6 +48,9 @@ async def analyze_relevance_optimized(request: RelevanceRequest):
         else:
             prompt_template = prompt_service.get_active_prompt()
         
+        # 중지 플래그 초기화
+        stop_flags[session_id] = False
+        
         # 최적화된 분석 수행
         result_path, stats = await news_analysis_service.analyze_news_batch(
             file_path=request.file_path,
@@ -53,7 +59,8 @@ async def analyze_relevance_optimized(request: RelevanceRequest):
             prompt_template=prompt_template,
             session_id=session_id,
             batch_size=request.batch_size,
-            use_batch_processing=request.use_batch_processing
+            use_batch_processing=request.use_batch_processing,
+            stop_flag_dict=stop_flags
         )
         
         return RelevanceResponse(
@@ -80,4 +87,44 @@ async def analyze_relevance_optimized(request: RelevanceRequest):
             message=f"관련성 분석 중 오류가 발생했습니다: {str(e)}",
             errors={"analysis_error": str(e)}
         )
+    finally:
+        # 중지 플래그 정리
+        if session_id in stop_flags:
+            del stop_flags[session_id]
+
+
+@router.post("/stop/{session_id}")
+async def stop_analysis(session_id: str):
+    """관련성 분석 중지"""
+    logger.info(f"관련성 분석 중지 요청: {session_id}")
+    
+    if session_id in stop_flags:
+        stop_flags[session_id] = True
+        logger.info(f"세션 {session_id} 중지 플래그 설정 완료")
+        return {
+            "success": True,
+            "message": "분석 중지 요청이 전송되었습니다. 잠시 후 중지됩니다.",
+            "session_id": session_id
+        }
+    else:
+        logger.warning(f"세션 {session_id}를 찾을 수 없습니다.")
+        return {
+            "success": False,
+            "message": "중지할 분석 세션을 찾을 수 없습니다.",
+            "session_id": session_id
+        }
+
+
+@router.get("/status/{session_id}")
+async def get_analysis_status(session_id: str):
+    """분석 상태 확인"""
+    is_running = session_id in stop_flags
+    is_stopped = stop_flags.get(session_id, False) if is_running else False
+    
+    return {
+        "session_id": session_id,
+        "is_running": is_running,
+        "is_stopped": is_stopped,
+        "status": "stopped" if is_stopped else ("running" if is_running else "not_found")
+    }
 

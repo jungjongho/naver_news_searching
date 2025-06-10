@@ -18,6 +18,8 @@ import {
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
+import StopIcon from '@mui/icons-material/Stop';
+import relevanceService from '../../api/relevanceService';
 
 const ProgressDialog = ({ open, onClose, sessionId }) => {
   const [progress, setProgress] = useState({
@@ -25,8 +27,11 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
     total: 0,
     percentage: 0,
     isComplete: false,
-    error: null
+    error: null,
+    isStopped: false
   });
+  
+  const [isStopRequested, setIsStopRequested] = useState(false);
   
   const [recentArticles, setRecentArticles] = useState([]);
   const [stats, setStats] = useState(null);
@@ -130,6 +135,16 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
               }, 1000);
               break;
               
+            case 'analysis_stopped':
+              console.log('⏹️ 분석 중지:', data.message);
+              setProgress(prev => ({
+                ...prev,
+                isStopped: true,
+                isComplete: true // 다이얼로그를 닫을 수 있도록
+              }));
+              setIsStopRequested(false);
+              break;
+              
             case 'error':
               console.error('❌ 서버 오류:', data.message);
               setProgress(prev => ({
@@ -198,6 +213,39 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
     };
   }, [open, sessionId]); // connectWebSocket 의존성 제거
 
+  // 분석 중지 함수
+  const handleStopAnalysis = async () => {
+    if (!sessionId || isStopRequested) {
+      return;
+    }
+    
+    setIsStopRequested(true);
+    
+    try {
+      console.log('🛑 분석 중지 요청:', sessionId);
+      const response = await relevanceService.stopAnalysis(sessionId);
+      
+      if (response.success) {
+        console.log('✅ 중지 요청 성공:', response.message);
+        // WebSocket을 통해 중지 상태가 업데이트됨
+      } else {
+        console.error('❌ 중지 요청 실패:', response.message);
+        setIsStopRequested(false);
+        setProgress(prev => ({
+          ...prev,
+          error: response.message
+        }));
+      }
+    } catch (error) {
+      console.error('❌ 중지 요청 중 오류:', error);
+      setIsStopRequested(false);
+      setProgress(prev => ({
+        ...prev,
+        error: '중지 요청 중 오류가 발생했습니다.'
+      }));
+    }
+  };
+  
   // 다이얼로그 닫기 시 상태 초기화
   const handleClose = () => {
     if (wsRef.current) {
@@ -208,10 +256,12 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
       total: 0,
       percentage: 0,
       isComplete: false,
-      error: null
+      error: null,
+      isStopped: false
     });
     setRecentArticles([]);
     setStats(null);
+    setIsStopRequested(false);
     
     // 분석 완료 시 결과 페이지로 이동
     if (progress.isComplete && window.analysisResult) {
@@ -264,10 +314,17 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
     >
       <DialogTitle>
         {progress.isComplete ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CheckCircleIcon color="success" />
-            <Typography variant="h6" component="span">관련성 평가 완료!</Typography>
-          </Box>
+          progress.isStopped ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <StopIcon color="warning" />
+              <Typography variant="h6" component="span">분석이 중지되었습니다</Typography>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CheckCircleIcon color="success" />
+              <Typography variant="h6" component="span">관련성 평가 완료!</Typography>
+            </Box>
+          )
         ) : progress.error ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <ErrorIcon color="error" />
@@ -293,8 +350,12 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
                   {progress.total > 0 && ` (${progress.percentage.toFixed(1)}%)`}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {progress.isComplete ? '완료됨' : '진행 중...'}
-                </Typography>
+                {progress.isComplete ? (
+                    progress.isStopped ? '사용자에 의해 중지됨' : '완료됨'
+                ) : (
+                  isStopRequested ? '중지 요청 중...' : '진행 중...'
+                )}
+              </Typography>
               </Box>
               
               <LinearProgress 
@@ -305,7 +366,7 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
             </Box>
 
             {/* 완료 통계 */}
-            {progress.isComplete && stats && (
+            {progress.isComplete && !progress.isStopped && stats && (
               <Card sx={{ mb: 3, bgcolor: 'success.light', color: 'success.contrastText' }}>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
@@ -349,6 +410,21 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
               </Card>
             )}
 
+            {/* 중지된 경우 메시지 */}
+            {progress.isStopped && (
+              <Card sx={{ mb: 3, bgcolor: 'warning.light', color: 'warning.contrastText' }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    분석 중지됨
+                  </Typography>
+                  <Typography variant="body2">
+                    사용자 요청에 의해 분석이 중지되었습니다. 
+                    {progress.current > 0 && `${progress.current}개 기사가 처리되었습니다.`}
+                  </Typography>
+                </CardContent>
+              </Card>
+            )}
+            
             {/* 최근 처리된 기사 목록 */}
             {recentArticles.length > 0 && (
               <Box>
@@ -397,6 +473,19 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
       </DialogContent>
       
       <DialogActions>
+        {!progress.isComplete && !progress.error && (
+          <Button 
+            onClick={handleStopAnalysis}
+            color="warning"
+            variant="outlined"
+            disabled={isStopRequested}
+            startIcon={<StopIcon />}
+            sx={{ mr: 1 }}
+          >
+            {isStopRequested ? '중지 요청 중...' : '분석 중지'}
+          </Button>
+        )}
+        
         <Button 
           onClick={handleClose}
           variant={progress.isComplete ? "contained" : "outlined"}

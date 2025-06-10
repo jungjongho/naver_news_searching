@@ -230,6 +230,16 @@ const RelevancePage = () => {
       return;
     }
     
+    if (!selectedPrompt) {
+      setAlert({
+        open: true,
+        type: 'error',
+        title: '프롬프트 템플릿 필수',
+        message: '관련성 평가를 위해서는 프롬프트 템플릿이 반드시 필요합니다. 프롬프트 관리 페이지에서 프롬프트를 선택하거나 새로 생성해주세요.',
+      });
+      return;
+    }
+    
     try {
       console.log('🚀 관련성 평가 시작...');
       
@@ -340,14 +350,15 @@ const RelevancePage = () => {
             
             <Box sx={{ mb: 3 }}>
               <FormControl fullWidth variant="outlined">
-                <InputLabel>프롬프트 템플릿</InputLabel>
+                <InputLabel>프롬프트 템플릿 (필수)</InputLabel>
                 <Select
                   value={selectedPrompt}
                   onChange={(e) => setSelectedPrompt(e.target.value)}
-                  label="프롬프트 템플릿"
+                  label="프롬프트 템플릿 (필수)"
+                  error={!selectedPrompt}
                 >
                   <MenuItem value="">
-                    <em>기본 프롬프트 사용</em>
+                    <em>프롬프트 템플릿을 선택해주세요 (필수)</em>
                   </MenuItem>
                   {prompts.map((prompt) => (
                     <MenuItem key={prompt.id} value={prompt.id}>
@@ -356,11 +367,11 @@ const RelevancePage = () => {
                   ))}
                 </Select>
               </FormControl>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              <Typography variant="body2" color={selectedPrompt ? "text.secondary" : "error"} sx={{ mt: 1 }}>
                 {selectedPrompt ? (
                   <>선택한 프롬프트: {prompts.find(p => p.id === selectedPrompt)?.description || '커스텀 프롬프트'}</>
                 ) : (
-                  '기본 프롬프트를 사용합니다. 프롬프트 관리 페이지에서 커스텀 프롬프트를 생성할 수 있습니다.'
+                  <>⚠️ 프롬프트 템플릿이 반드시 필요합니다. 기본 프롬프트는 더 이상 지원되지 않습니다.</>
                 )}
               </Typography>
               
@@ -526,7 +537,7 @@ const RelevancePage = () => {
                 color="primary"
                 size="large"
                 onClick={handleEvaluate}
-                disabled={!selectedFile || !apiKey || loading}
+                disabled={!selectedFile || !apiKey || !selectedPrompt || loading}
                 startIcon={<AnalyticsIcon />}
                 sx={{ px: 4, py: 1 }}
               >
@@ -553,8 +564,8 @@ const RelevancePage = () => {
                     <InfoOutlinedIcon color="primary" fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
-                    primary="LLM 기반 평가"
-                    secondary="OpenAI나 Claude API를 사용하여 뉴스 기사의 화장품 업계 관련성을 자동으로 평가합니다."
+                    primary="프롬프트 템플릿 필수"
+                    secondary="관련성 평가를 위해 프롬프트 템플릿을 반드시 선택해야 합니다. 기본 프롬프트는 더 이상 지원되지 않습니다."
                   />
                 </ListItem>
                 <ListItem>

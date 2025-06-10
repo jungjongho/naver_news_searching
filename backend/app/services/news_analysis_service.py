@@ -44,7 +44,8 @@ class NewsAnalysisService:
         prompt_template=None,
         session_id: str = None,
         batch_size: int = 10,
-        use_batch_processing: bool = True
+        use_batch_processing: bool = True,
+        stop_flag_dict: Dict[str, bool] = None
     ) -> Tuple[str, Dict[str, Any]]:
         """최적화된 뉴스 배치 분석"""
         
@@ -67,20 +68,23 @@ class NewsAnalysisService:
             # 2. AI 클라이언트 생성
             ai_client = AIClientFactory.create_client(model, api_key)
             
-            # 3. 프롬프트 준비
+            # 3. 프롬프트 준비 및 필수 검증
             compiled_prompt = None
             if prompt_template:
                 compiled_prompt = prompt_template.get_compiled_prompt()
                 logger.info(f"사용 프롬프트: {prompt_template.name}")
             
+            if not compiled_prompt:
+                raise ValidationError("프롬프트 템플릿이 설정되지 않았습니다. 프롬프트 관리 페이지에서 프롬프트 템플릿을 선택해주세요.")
+            
             # 4. 배치 분석 수행
             if use_batch_processing:
                 analyzed_data, stats = await self._analyze_batch_optimized_v2(
-                    news_data, ai_client, model, compiled_prompt, session_id, batch_size
+                    news_data, ai_client, model, compiled_prompt, session_id, batch_size, stop_flag_dict
                 )
             else:
                 analyzed_data, stats = await self._analyze_batch_optimized(
-                    news_data, ai_client, model, compiled_prompt, session_id
+                    news_data, ai_client, model, compiled_prompt, session_id, stop_flag_dict
                 )
             
             # 5. 결과 저장
@@ -100,7 +104,8 @@ class NewsAnalysisService:
         ai_client,
         model: str,
         compiled_prompt: Optional[str],
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        stop_flag_dict: Dict[str, bool] = None
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """최적화된 배치 분석 수행"""
         
@@ -133,6 +138,26 @@ class NewsAnalysisService:
         
         for i, news_item in enumerate(news_data):
             current_index = i + 1
+            
+            # 중지 플래그 확인
+            if stop_flag_dict and session_id and stop_flag_dict.get(session_id, False):
+                logger.info(f"사용자 요청에 의해 분석 중지 ({current_index}/{total_items})")
+                
+                # 중지 상태를 알리는 WebSocket 메시지 전송
+                if session_id:
+                    try:
+                        await manager.send_stop_message(session_id, current_index - 1, total_items)
+                    except Exception as ws_error:
+                        logger.warning(f"WebSocket 중지 메시지 전송 실패: {ws_error}")
+                
+                # 현재까지의 결과를 반환
+                stats["relevant_ratio"] = (stats["relevant_items"] / len(analyzed_data) 
+                                           if len(analyzed_data) > 0 else 0)
+                stats["relevant_percent"] = round(stats["relevant_ratio"] * 100, 1)
+                stats["processing_time"] = round((time.time() - start_time) / 60, 1)
+                stats["total_items"] = len(analyzed_data)  # 실제 처리된 개수로 업데이트
+                stats["stopped_by_user"] = True
+                return analyzed_data, stats
             
             try:
                 # 제목과 내용 추출
@@ -259,28 +284,25 @@ class NewsAnalysisService:
     
     def _prepare_prompt_optimized(self, title: str, content: str, 
                                  compiled_prompt: Optional[str] = None) -> str:
-        """최적화된 프롬프트 준비"""
+        """최적화된 프롬프트 준비 - 템플릿 필수"""
+        if not compiled_prompt:
+            raise ValidationError("프롬프트 템플릿이 설정되지 않았습니다. 관련성 평가를 위해 프롬프트 템플릿을 선택해주세요.")
+        
         # 텍스트 길이 제한 (성능 향상)
         title_truncated = title[:300] if title else ""
         content_truncated = content[:1500] if content else ""
         
-        if compiled_prompt:
-            if '{title}' in compiled_prompt and '{content}' in compiled_prompt:
-                return compiled_prompt.format(
-                    title=title_truncated, 
-                    content=content_truncated
-                )
-            else:
-                return f"""{compiled_prompt}
+        if '{title}' in compiled_prompt and '{content}' in compiled_prompt:
+            return compiled_prompt.format(
+                title=title_truncated, 
+                content=content_truncated
+            )
+        else:
+            return f"""{compiled_prompt}
 
 분석할 뉴스 기사:
 제목: {title_truncated}
 내용: {content_truncated}"""
-        else:
-            return self._get_default_prompt().format(
-                title=title_truncated, 
-                content=content_truncated
-            )
     
     def _get_default_prompt(self) -> str:
         """기본 프롬프트 반환"""
@@ -399,7 +421,8 @@ def _add_batch_processing_methods():
         model: str,
         compiled_prompt: Optional[str],
         session_id: Optional[str] = None,
-        batch_size: int = 10
+        batch_size: int = 10,
+        stop_flag_dict: Dict[str, bool] = None
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """배치 처리 최적화 분석 수행 (10개씩 처리)"""
         
@@ -434,6 +457,23 @@ def _add_batch_processing_methods():
         for batch_start in range(0, total_items, batch_size):
             batch_end = min(batch_start + batch_size, total_items)
             batch_items = news_data[batch_start:batch_end]
+            
+            # 중지 플래그 확인
+            if stop_flag_dict and session_id and stop_flag_dict.get(session_id, False):
+                logger.info(f"사용자 요청에 의해 배치 분석 중지 ({batch_start}/{total_items})")
+                
+                # 중지 상태를 알리는 WebSocket 메시지 전송
+                if session_id:
+                    try:
+                        await manager.send_stop_message(session_id, len(analyzed_data), total_items)
+                    except Exception as ws_error:
+                        logger.warning(f"WebSocket 중지 메시지 전송 실패: {ws_error}")
+                
+                # 현재까지의 결과를 반환
+                self._finalize_stats(stats, start_time)
+                stats["total_items"] = len(analyzed_data)  # 실제 처리된 개수로 업데이트
+                stats["stopped_by_user"] = True
+                return analyzed_data, stats
             
             try:
                 # 배치 분석 수행
@@ -568,13 +608,16 @@ def _add_batch_processing_methods():
         batch_items: List[Dict[str, Any]], 
         compiled_prompt: Optional[str] = None
     ) -> str:
-        """배치 처리용 프롬프트 준비"""
+        """배치 처리용 프롬프트 준비 - 템플릿 필수"""
         
-        # 기본 프롬프트 설정
-        if compiled_prompt:
-            base_prompt = compiled_prompt
-        else:
-            base_prompt = self._get_default_batch_prompt()
+        if not compiled_prompt:
+            raise ValidationError("프롬프트 템플릿이 설정되지 않았습니다. 관련성 평가를 위해 프롬프트 템플릿을 선택해주세요.")
+        
+        # 커스텀 프롬프트에서 {title}, {content} 부분을 제거하고 기본 구조만 사용
+        base_prompt = compiled_prompt.replace('{title}', '').replace('{content}', '').strip()
+        # 마지막에 남은 "뉴스 기사:" 부분 제거
+        if base_prompt.endswith('뉴스 기사:'):
+            base_prompt = base_prompt[:-6].strip()
         
         # 배치 아이템들을 리스트로 추가
         articles_text = ""
@@ -875,7 +918,6 @@ def _add_batch_processing_methods():
     NewsAnalysisService._analyze_batch_optimized_v2 = _analyze_batch_optimized_v2
     NewsAnalysisService._analyze_batch_items = _analyze_batch_items
     NewsAnalysisService._prepare_batch_prompt = _prepare_batch_prompt
-    NewsAnalysisService._get_default_batch_prompt = _get_default_batch_prompt
     NewsAnalysisService._parse_batch_response_dynamic = _parse_batch_response_dynamic
     NewsAnalysisService._validate_and_normalize_batch_item = _validate_and_normalize_batch_item
     NewsAnalysisService._adjust_batch_result_count = _adjust_batch_result_count

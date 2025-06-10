@@ -111,6 +111,18 @@ class ConnectionManager:
         
         logger.error(f"❌ 오류 메시지 전송: session_id={session_id}, error={error_message}")
         await self.send_personal_message(error_data, session_id)
+    
+    async def send_stop_message(self, session_id: str, current: int, total: int):
+        """중지 메시지 전송"""
+        stop_data = {
+            "type": "analysis_stopped",
+            "current": current,
+            "total": total,
+            "message": f"사용자 요청에 의해 분석이 중지되었습니다. ({current}/{total} 완료)"
+        }
+        
+        logger.info(f"⏹️ 분석 중지 메시지 전송: session_id={session_id}, {current}/{total}")
+        await self.send_personal_message(stop_data, session_id)
 
 
 # 전역 연결 관리자 인스턴스
