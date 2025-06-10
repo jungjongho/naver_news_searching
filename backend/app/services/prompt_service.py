@@ -160,13 +160,13 @@ class PromptService:
             
             prompt_data = {
                 "id": prompt_id,
-                "name": request.name,
-                "description": request.description,
-                "role_definition": request.role_definition,
-                "detailed_instructions": request.detailed_instructions,
-                "few_shot_examples": request.few_shot_examples,
-                "cot_process": request.cot_process,
-                "base_prompt": request.base_prompt,
+                "name": request.name.strip(),
+                "description": request.description or "",
+                "role_definition": request.role_definition.strip(),
+                "detailed_instructions": request.detailed_instructions or "",
+                "few_shot_examples": request.few_shot_examples or "",
+                "cot_process": request.cot_process or "",
+                "base_prompt": request.base_prompt.strip(),
                 "system_message": request.system_message or "정확한 JSON 형식으로만 응답하세요.",
                 "is_active": False,
                 "created_at": now.isoformat(),
@@ -191,7 +191,7 @@ class PromptService:
             
             for i, prompt_data in enumerate(prompts_data):
                 if prompt_data.get("id") == prompt_id:
-                    # 기존 데이터 업데이트
+                    # 기존 데이터 업데이트 - 빈 문자열도 허용
                     if request.name is not None:
                         prompt_data["name"] = request.name
                     if request.description is not None:
@@ -213,6 +213,17 @@ class PromptService:
                             for other_prompt in prompts_data:
                                 other_prompt["is_active"] = False
                         prompt_data["is_active"] = request.is_active
+                    
+                    # 필수 필드 검증 - 수정 후에 확인
+                    if not prompt_data.get("name") or not prompt_data.get("name").strip():
+                        logger.error("프롬프트 이름은 필수입니다.")
+                        return None
+                    if not prompt_data.get("role_definition") or not prompt_data.get("role_definition").strip():
+                        logger.error("역할 정의는 필수입니다.")
+                        return None
+                    if not prompt_data.get("base_prompt") or not prompt_data.get("base_prompt").strip():
+                        logger.error("기본 프롬프트는 필수입니다.")
+                        return None
                     
                     prompt_data["updated_at"] = datetime.now().isoformat()
                     

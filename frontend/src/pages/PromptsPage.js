@@ -209,17 +209,27 @@ const PromptsPage = () => {
         return;
       }
 
+      let response;
       if (dialogMode === 'create') {
-        await promptService.createPrompt(currentFormData);
-        showAlert('프롬프트가 생성되었습니다.', 'success');
+        response = await promptService.createPrompt(currentFormData);
       } else {
-        await promptService.updatePrompt(currentPrompt.id, currentFormData);
-        showAlert('프롬프트가 수정되었습니다.', 'success');
+        // 수정 모드에서도 모든 필드를 전송 (백엔드에서 필터링)
+        response = await promptService.updatePrompt(currentPrompt.id, currentFormData);
       }
+      
+      // 응답 확인
+      if (response.success === false) {
+        showAlert(response.message || '프롬프트 저장에 실패했습니다.', 'error');
+        return;
+      }
+      
+      showAlert(dialogMode === 'create' ? '프롬프트가 생성되었습니다.' : '프롬프트가 수정되었습니다.', 'success');
       setOpenDialog(false);
       loadPrompts();
     } catch (error) {
-      showAlert('프롬프트 저장에 실패했습니다: ' + error.message, 'error');
+      // API 에러 메시지 처리
+      const errorMessage = error.response?.data?.detail || error.response?.data?.message || error.message;
+      showAlert('프롬프트 저장에 실패했습니다: ' + errorMessage, 'error');
     }
   };
 

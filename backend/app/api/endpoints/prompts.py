@@ -92,6 +92,26 @@ async def create_prompt(request: PromptCreateRequest):
     새 통합 프롬프트 템플릿 생성
     """
     try:
+        # 필수 필드 검증
+        if not request.name or not request.name.strip():
+            return PromptResponse(
+                success=False,
+                message="프롬프트 이름은 필수 입력항목입니다.",
+                errors={"validation_error": "Name is required"}
+            )
+        if not request.role_definition or not request.role_definition.strip():
+            return PromptResponse(
+                success=False,
+                message="역할 정의는 필수 입력항목입니다.",
+                errors={"validation_error": "Role definition is required"}
+            )
+        if not request.base_prompt or not request.base_prompt.strip():
+            return PromptResponse(
+                success=False,
+                message="기본 프롬프트는 필수 입력항목입니다.",
+                errors={"validation_error": "Base prompt is required"}
+            )
+        
         prompt = prompt_service.create_prompt(request)
         if not prompt:
             return PromptResponse(
@@ -116,11 +136,45 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
     통합 프롬프트 템플릿 수정
     """
     try:
+        # 현재 프롬프트 가져오기
+        existing_prompt = prompt_service.get_prompt_by_id(prompt_id)
+        if not existing_prompt:
+            return PromptResponse(
+                success=False,
+                message="해당 ID의 프롬프트를 찾을 수 없습니다.",
+                errors={"not_found": "Prompt not found"}
+            )
+        
+        # 필수 필드 검증 - 업데이트 요청에 필드가 없으면 기존 값 유지
+        final_name = request.name if request.name is not None else existing_prompt.name
+        final_role_definition = request.role_definition if request.role_definition is not None else existing_prompt.role_definition
+        final_base_prompt = request.base_prompt if request.base_prompt is not None else existing_prompt.base_prompt
+        
+        # 필수 필드 검증
+        if not final_name or not final_name.strip():
+            return PromptResponse(
+                success=False,
+                message="프롬프트 이름은 필수 입력항목입니다.",
+                errors={"validation_error": "Name is required"}
+            )
+        if not final_role_definition or not final_role_definition.strip():
+            return PromptResponse(
+                success=False,
+                message="역할 정의는 필수 입력항목입니다.",
+                errors={"validation_error": "Role definition is required"}
+            )
+        if not final_base_prompt or not final_base_prompt.strip():
+            return PromptResponse(
+                success=False,
+                message="기본 프롬프트는 필수 입력항목입니다.",
+                errors={"validation_error": "Base prompt is required"}
+            )
+        
         prompt = prompt_service.update_prompt(prompt_id, request)
         if not prompt:
             return PromptResponse(
                 success=False,
-                message="해당 ID의 프롬프트를 찾을 수 없거나 수정에 실패했습니다.",
+                message="프롬프트 수정에 실패했습니다.",
                 errors={"update_error": "Failed to update prompt"}
             )
         

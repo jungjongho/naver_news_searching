@@ -138,17 +138,17 @@ class PromptCreateRequest(BaseModel):
     """
     통합 프롬프트 생성 요청 스키마
     """
-    name: str = Field(..., description="프롬프트 이름")
-    description: Optional[str] = Field(None, description="프롬프트 설명")
+    name: str = Field(..., min_length=1, description="프롬프트 이름 (필수)")
+    description: Optional[str] = Field("", description="프롬프트 설명")
     
     # 통합 프롬프트 구성 요소
-    role_definition: str = Field(..., description="역할 정의")
-    detailed_instructions: str = Field(..., description="상세 지침")
-    few_shot_examples: str = Field(..., description="Few-shot 예시")
-    cot_process: str = Field(..., description="Chain of Thought - 단계별 사고 과정")
-    base_prompt: str = Field(..., description="기본 프롬프트")
+    role_definition: str = Field(..., min_length=1, description="역할 정의 (필수)")
+    detailed_instructions: str = Field("", description="상세 지침")
+    few_shot_examples: str = Field("", description="Few-shot 예시")
+    cot_process: str = Field("", description="Chain of Thought - 단계별 사고 과정")
+    base_prompt: str = Field(..., min_length=1, description="기본 프롬프트 (필수)")
     
-    system_message: Optional[str] = Field(None, description="시스템 메시지")
+    system_message: Optional[str] = Field("정확한 JSON 형식으로만 응답하세요.", description="시스템 메시지")
 
 
 class PromptUpdateRequest(BaseModel):
