@@ -3,6 +3,7 @@
 
 """
 AI 클라이언트 팩토리 및 관리
+- LLM API 호출 로그 기능 추가
 """
 
 import logging
@@ -40,16 +41,40 @@ class OpenAIClient:
         try:
             self.client = OpenAI(api_key=api_key, timeout=30.0)
             # API 키 유효성 검증
-            self.client.models.list()
-            logger.info("OpenAI 클라이언트 초기화 완료")
+            logger.info("OpenAI API 키 유효성 검증 중...")
+            models = self.client.models.list()
+            logger.info(f"OpenAI 클라이언트 초기화 완료 - 사용 가능한 모델 수: {len(models.data)}")
         except Exception as e:
             logger.error(f"OpenAI 클라이언트 초기화 실패: {str(e)}")
             raise APIKeyError(f"OpenAI API 키가 유효하지 않습니다: {str(e)}")
     
-    def analyze(self, prompt: str, model: str = "gpt-4.1-nano", **kwargs) -> str:
+    def analyze(self, prompt: str, model: str = "gpt-4.1-nano", batch_size: int = 1, **kwargs) -> str:
         """텍스트 분석"""
+        import datetime
+        import os
+        
         try:
             actual_model = self.MODEL_MAPPING.get(model, model)
+            logger.info(f"OpenAI 분석 시작 - 요청 모델: {model}, 실제 모델: {actual_model}")
+            
+            # 배치 크기에 따른 동적 max_tokens 설정
+            if batch_size > 1:
+                default_max_tokens = min(batch_size * 1000 + 2000, 32000)  # 배치 처리용
+            else:
+                default_max_tokens = 2000  # 단일 처리용
+            
+            # LLM 호출 로그 기록
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            log_entry = f"\n\n{'='*80}\n"
+            log_entry += f"[{timestamp}] LLM API 호출\n"
+            log_entry += f"{'='*80}\n"
+            log_entry += f"모델: {actual_model}\n"
+            log_entry += f"프롬프트 길이: {len(prompt)}문자\n"
+            log_entry += f"배치 크기: {batch_size}\n"
+            log_entry += f"max_tokens: {kwargs.get('max_tokens', default_max_tokens)}\n"
+            log_entry += f"\n--- 프롬프트 내용 ---\n"
+            log_entry += prompt
+            log_entry += f"\n--- 프롬프트 끝 ---\n"
             
             response = self.client.chat.completions.create(
                 model=actual_model,
@@ -58,13 +83,57 @@ class OpenAIClient:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=kwargs.get('temperature', 0.1),
-                max_tokens=kwargs.get('max_tokens', 500)
+                max_tokens=kwargs.get('max_tokens', default_max_tokens)
             )
             
-            return response.choices[0].message.content.strip()
+            result = response.choices[0].message.content.strip()
+            logger.info(f"OpenAI 분석 완료 - 응답 길이: {len(result)}문자")
+            logger.debug(f"OpenAI 응답 내용: {result}")
+            
+            # LLM 응답 로그 기록
+            log_entry += f"\n--- LLM 응답 ---\n"
+            log_entry += result
+            log_entry += f"\n--- 응답 끝 ---\n"
+            log_entry += f"응답 길이: {len(result)}문자\n"
+            
+            # 로그 파일에 기록
+            try:
+                # 백엔드 폴더에 log.txt 파일 생성
+                backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                log_file_path = os.path.join(backend_dir, "llm_log.txt")
+                
+                with open(log_file_path, "a", encoding="utf-8") as f:
+                    f.write(log_entry)
+                    f.flush()  # 즉시 파일에 쓰기
+                
+                logger.debug(f"LLM 로그 기록: {log_file_path}")
+                
+            except Exception as log_error:
+                logger.warning(f"LLM 로그 기록 실패: {log_error}")
+            
+            return result
             
         except Exception as e:
-            logger.error(f"OpenAI 분석 실패: {str(e)}")
+            logger.error(f"OpenAI 분석 실패 - 모델: {model}, 오류: {str(e)}")
+            
+            # 오류도 로그에 기록
+            try:
+                timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                error_log = f"\n\n{'='*80}\n"
+                error_log += f"[{timestamp}] LLM API 오류\n"
+                error_log += f"{'='*80}\n"
+                error_log += f"오류: {str(e)}\n"
+                
+                backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                log_file_path = os.path.join(backend_dir, "llm_log.txt")
+                
+                with open(log_file_path, "a", encoding="utf-8") as f:
+                    f.write(error_log)
+                    f.flush()
+                    
+            except Exception as log_error:
+                logger.warning(f"LLM 오류 로그 기록 실패: {log_error}")
+            
             raise AnalysisError(f"OpenAI 분석 중 오류가 발생했습니다: {str(e)}")
 
 

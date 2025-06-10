@@ -20,6 +20,9 @@ import {
   Divider,
   IconButton,
   Tooltip,
+  FormControlLabel,
+  Switch,
+  Slider,
 } from '@mui/material';
 import AnalyticsIcon from '@mui/icons-material/Analytics';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
@@ -64,6 +67,10 @@ const RelevancePage = () => {
   const [sessionId, setSessionId] = useState(null);
   const [alert, setAlert] = useState({ open: false, type: 'info', message: '', title: '' });
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
+  
+  // 배치 처리 옵션
+  const [useBatchProcessing, setUseBatchProcessing] = useState(true);
+  const [batchSize, setBatchSize] = useState(10);
   
   // 프롬프트 목록 로드
   const loadPrompts = async () => {
@@ -252,7 +259,9 @@ const RelevancePage = () => {
         api_key: apiKey,
         model: model,
         prompt_id: selectedPrompt || null,
-        session_id: newSessionId  // 프론트엔드에서 생성한 session_id 전달
+        session_id: newSessionId,  // 프론트엔드에서 생성한 session_id 전달
+        use_batch_processing: useBatchProcessing,
+        batch_size: useBatchProcessing ? batchSize : 1
       };
       
       console.log('📤 API 요청 시작:', requestData);
@@ -461,6 +470,54 @@ const RelevancePage = () => {
               </Typography>
             </Box>
             
+            {/* 배치 처리 옵션 */}
+            <Box sx={{ mb: 3, p: 2, border: '1px solid #e0e0e0', borderRadius: 1 }}>
+              <Typography variant="h6" gutterBottom>
+                배치 처리 설정
+              </Typography>
+              
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={useBatchProcessing}
+                    onChange={(e) => setUseBatchProcessing(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label="배치 처리 사용 (추청)"
+              />
+              
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                배치 처리는 여러 기사를 한번에 분석하여 속도를 향상시킵니다.
+              </Typography>
+              
+              {useBatchProcessing && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography gutterBottom>
+                    배치 크기: {batchSize}개
+                  </Typography>
+                  <Slider
+                    value={batchSize}
+                    onChange={(e, value) => setBatchSize(value)}
+                    min={1}
+                    max={20}
+                    step={1}
+                    marks={[
+                      { value: 1, label: '1' },
+                      { value: 5, label: '5' },
+                      { value: 10, label: '10' },
+                      { value: 15, label: '15' },
+                      { value: 20, label: '20' }
+                    ]}
+                    valueLabelDisplay="auto"
+                  />
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                    배치 크기가 클수록 빠르지만 API 비용이 많이 들 수 있습니다. 권장: 10개
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            
             <Divider sx={{ mb: 3 }} />
             
             <Box sx={{ textAlign: 'center' }}>
@@ -514,6 +571,15 @@ const RelevancePage = () => {
                     <InfoOutlinedIcon color="primary" fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
+                    primary="배치 처리 지원"
+                    secondary="여러 기사를 한번에 분석하여 속도를 향상시킵니다. 기본 10개씩 배치 처리됩니다."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <InfoOutlinedIcon color="primary" fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
                     primary="분석 진행"
                     secondary="선택한 파일의 모든 기사를 순차적으로 분석하며, 완료 후 결과를 확인할 수 있습니다."
                   />
@@ -554,6 +620,15 @@ const RelevancePage = () => {
                   <ListItemText
                     primary="평가 시간"
                     secondary="뉴스 기사 수에 따라 평가 시간이 달라집니다. 100개 기사 기준 약 3-5분이 소요됩니다."
+                  />
+                </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <HelpOutlineIcon color="primary" fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="배치 처리"
+                    secondary="배치 처리는 여러 기사를 한번에 분석하여 속도를 3-5배 향상시킵니다. 배치 크기가 클수록 빠르지만 API 비용이 더 들 수 있습니다."
                   />
                 </ListItem>
                 <ListItem>

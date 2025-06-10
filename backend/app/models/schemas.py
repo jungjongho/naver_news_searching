@@ -59,6 +59,8 @@ class RelevanceRequest(BaseModel):
     model: Optional[str] = Field("gpt-4.1-nano", description="사용할 LLM 모델 (gpt-4.1-nano, gpt-4.1-mini, gpt-4.1, gpt-4o-mini, gpt-3.5-turbo 등)")
     prompt_id: Optional[str] = Field(None, description="사용할 프롬프트 ID")
     session_id: Optional[str] = Field(None, description="세션 ID (진행률 추적용)")
+    batch_size: Optional[int] = Field(10, description="배치 처리 크기 (기본값: 10)")
+    use_batch_processing: Optional[bool] = Field(True, description="배치 처리 사용 여부 (기본값: True)")
 
 
 class RelevanceResponse(BaseModel):

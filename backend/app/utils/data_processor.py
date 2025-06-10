@@ -65,6 +65,10 @@ class DataProcessor:
         result.setdefault("category", "기타")
         result.setdefault("confidence", 0.5)
         result.setdefault("keywords", [])
+        result.setdefault("relation", 0.5)
+        result.setdefault("reason", "기본 분석")
+        result.setdefault("importance", "중")
+        result.setdefault("recommendation_reason", "대기업 또는 일반 기사")
         
         # 카테고리명 정규화 (매핑 테이블 사용)
         category_mapping = {
@@ -84,9 +88,26 @@ class DataProcessor:
         if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
             result["confidence"] = 0.5
         
+        # relation 값 검증 (0-1 범위)
+        relation = result.get("relation", 0.5)
+        if not isinstance(relation, (int, float)) or relation < 0 or relation > 1:
+            result["relation"] = 0.5
+        
+        # importance 값 검증
+        valid_importance = ["상", "중", "하"]
+        if result["importance"] not in valid_importance:
+            result["importance"] = "중"
+        
         # keywords가 리스트인지 확인
         if not isinstance(result["keywords"], list):
             result["keywords"] = []
+        
+        # 문자열 필드 검증
+        if not isinstance(result.get("reason", ""), str):
+            result["reason"] = "기본 분석"
+            
+        if not isinstance(result.get("recommendation_reason", ""), str):
+            result["recommendation_reason"] = "일반 대기업 기사"
         
         return result
     
@@ -96,7 +117,11 @@ class DataProcessor:
         return {
             "category": "기타",
             "confidence": 0.0,
-            "keywords": []
+            "keywords": [],
+            "relation": 0.0,
+            "reason": "분석 실패 또는 기본값",
+            "importance": "하",
+            "recommendation_reason": "분석이 수행되지 않음"
         }
     
     @staticmethod

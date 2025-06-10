@@ -51,7 +51,9 @@ async def analyze_relevance_optimized(request: RelevanceRequest):
             api_key=request.api_key,
             model=request.model,
             prompt_template=prompt_template,
-            session_id=session_id
+            session_id=session_id,
+            batch_size=request.batch_size,
+            use_batch_processing=request.use_batch_processing
         )
         
         return RelevanceResponse(

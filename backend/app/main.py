@@ -17,9 +17,9 @@ from app.common.exception_handlers import (
     general_exception_handler
 )
 
-# 로깅 설정
+# 로깅 설정 - 디버깅을 위해 DEBUG 레벨로 변경
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
