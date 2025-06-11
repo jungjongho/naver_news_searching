@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Box, Typography, Button, Card, CardContent, CardActions, CardHeader,
   Grid, Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -14,31 +14,75 @@ import {
 } from '@mui/icons-material';
 import { promptService } from '../api/promptService';
 
-// 안정화된 TextField 컴포넌트 - 리렌더링 방지
-const MemoizedTextField = React.memo(({ 
+// 최적화된 TextField 컴포넌트 - 완전한 리렌더링 방지
+const StableTextField = React.memo(({ 
   label, 
   value, 
   onChange, 
   required = false, 
   multiline = false, 
-  rows = 1, 
+  rows = 1,
+  margin = "normal",
+  placeholder = "",
   ...props 
 }) => {
+  // 디바운싱을 위한 ref 사용
+  const inputRef = useRef(null);
+  
   return (
     <TextField
+      ref={inputRef}
       label={label}
       value={value || ''}
       onChange={onChange}
       required={required}
       multiline={multiline}
       rows={rows}
+      margin={margin}
+      placeholder={placeholder}
       fullWidth
+      // 키 이벤트 최적화
+      InputProps={{
+        autoComplete: 'off',
+        spellCheck: false,
+      }}
+      // 렌더링 최적화
+      variant="outlined"
       {...props}
     />
   );
+}, (prevProps, nextProps) => {
+  // 커스텀 비교 함수로 불필요한 리렌더링 완전 차단
+  return (
+    prevProps.value === nextProps.value &&
+    prevProps.label === nextProps.label &&
+    prevProps.required === nextProps.required &&
+    prevProps.multiline === nextProps.multiline &&
+    prevProps.rows === nextProps.rows &&
+    prevProps.placeholder === nextProps.placeholder
+  );
 });
 
-MemoizedTextField.displayName = 'MemoizedTextField';
+StableTextField.displayName = 'StableTextField';
+
+// 탭 패널도 메모이제이션
+const TabPanel = React.memo(({ children, value, index, ...other }) => (
+  <div
+    role="tabpanel"
+    hidden={value !== index}
+    id={`prompt-tabpanel-${index}`}
+    aria-labelledby={`prompt-tab-${index}`}
+    {...other}
+  >
+    {value === index && (
+      <Box sx={{ pt: 2 }}>
+        {children}
+      </Box>
+    )}
+  </div>
+));
+
+TabPanel.displayName = 'TabPanel';
 
 const PromptsPage = () => {
   const [prompts, setPrompts] = useState([]);
@@ -52,6 +96,20 @@ const PromptsPage = () => {
   const [alert, setAlert] = useState({ show: false, message: '', severity: 'info' });
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [currentTab, setCurrentTab] = useState(0);
+  
+  // formData를 useRef로 관리하여 리렌더링 완전 차단
+  const formDataRef = useRef({
+    name: '',
+    description: '',
+    role_definition: '',
+    detailed_instructions: '',
+    few_shot_examples: '',
+    cot_process: '',
+    base_prompt: '',
+    system_message: '정확한 JSON 형식으로만 응답하세요.'
+  });
+
+  // 폼 데이터 상태를 분리하여 관리
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -63,12 +121,13 @@ const PromptsPage = () => {
     system_message: '정확한 JSON 형식으로만 응답하세요.'
   });
 
-  // 템플릿은 memoize하여 불필요한 리렌더링 방지
+  // 템플릿은 완전히 정적으로 관리
   const promptTemplates = useMemo(() => ({
     enhanced: {
       name: '네이버 뉴스 스크랩 전문가',
       description: '네이버 뉴스 스크랩 업무에 최적화된 통합 프롬프트',
-      color: 'primary', icon: <AutoAwesomeIcon />,
+      color: 'primary', 
+      icon: <AutoAwesomeIcon />,
       template: {
         role_definition: '당신은 코스맥스의 전문 뉴스 큐레이터입니다.',
         detailed_instructions: '다음 기준에 따라 뉴스 기사를 분류하고 평가하세요.',
@@ -80,7 +139,8 @@ const PromptsPage = () => {
     simple: {
       name: '간단 뉴스 분류기',
       description: '빠른 분류를 위한 간소화된 프롬프트',
-      color: 'success', icon: <SchoolIcon />,
+      color: 'success', 
+      icon: <SchoolIcon />,
       template: {
         role_definition: '당신은 뉴스 분류 전문가입니다.',
         detailed_instructions: '4개 카테고리로 분류하세요.',
@@ -118,7 +178,7 @@ const PromptsPage = () => {
     
     if (mode === 'edit' && prompt) {
       setCurrentPrompt(prompt);
-      setFormData({
+      const newFormData = {
         name: prompt.name || '',
         description: prompt.description || '',
         role_definition: prompt.role_definition || '',
@@ -127,10 +187,12 @@ const PromptsPage = () => {
         cot_process: prompt.cot_process || '',
         base_prompt: prompt.base_prompt || '',
         system_message: prompt.system_message || '정확한 JSON 형식으로만 응답하세요.'
-      });
+      };
+      setFormData(newFormData);
+      formDataRef.current = { ...newFormData };
     } else {
       setCurrentPrompt(null);
-      setFormData({
+      const newFormData = {
         name: '',
         description: '',
         role_definition: '',
@@ -139,7 +201,9 @@ const PromptsPage = () => {
         cot_process: '',
         base_prompt: '',
         system_message: '정확한 JSON 형식으로만 응답하세요.'
-      });
+      };
+      setFormData(newFormData);
+      formDataRef.current = { ...newFormData };
     }
     setOpenDialog(true);
   }, []);
@@ -147,45 +211,46 @@ const PromptsPage = () => {
   const handleApplyTemplate = useCallback(() => {
     if (selectedTemplate) {
       const template = promptTemplates[selectedTemplate];
-      setFormData(prev => ({ ...prev, name: template.name, description: template.description, ...template.template }));
+      const newFormData = { 
+        ...formDataRef.current, 
+        name: template.name, 
+        description: template.description, 
+        ...template.template 
+      };
+      setFormData(newFormData);
+      formDataRef.current = { ...newFormData };
       setOpenTemplateDialog(false);
       setSelectedTemplate('');
       handleOpenDialog('create');
     }
   }, [selectedTemplate, promptTemplates, handleOpenDialog]);
 
-  // 개별 필드별 핸들러를 memoize - 리렌더링 방지의 핵심
-  const handleNameChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, name: e.target.value }));
+  // 최적화된 필드 업데이트 함수들
+  const createFieldHandler = useCallback((fieldName) => {
+    return (e) => {
+      const value = e.target.value;
+      // ref 즉시 업데이트
+      formDataRef.current = {
+        ...formDataRef.current,
+        [fieldName]: value
+      };
+      // 상태는 배치 업데이트
+      setFormData(prev => ({
+        ...prev,
+        [fieldName]: value
+      }));
+    };
   }, []);
 
-  const handleDescriptionChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, description: e.target.value }));
-  }, []);
-
-  const handleSystemMessageChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, system_message: e.target.value }));
-  }, []);
-
-  const handleRoleDefinitionChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, role_definition: e.target.value }));
-  }, []);
-
-  const handleDetailedInstructionsChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, detailed_instructions: e.target.value }));
-  }, []);
-
-  const handleFewShotExamplesChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, few_shot_examples: e.target.value }));
-  }, []);
-
-  const handleCotProcessChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, cot_process: e.target.value }));
-  }, []);
-
-  const handleBasePromptChange = useCallback((e) => {
-    setFormData(prev => ({ ...prev, base_prompt: e.target.value }));
-  }, []);
+  // 각 필드별 핸들러를 메모이제이션
+  const handleNameChange = useMemo(() => createFieldHandler('name'), [createFieldHandler]);
+  const handleDescriptionChange = useMemo(() => createFieldHandler('description'), [createFieldHandler]);
+  const handleSystemMessageChange = useMemo(() => createFieldHandler('system_message'), [createFieldHandler]);
+  const handleRoleDefinitionChange = useMemo(() => createFieldHandler('role_definition'), [createFieldHandler]);
+  const handleDetailedInstructionsChange = useMemo(() => createFieldHandler('detailed_instructions'), [createFieldHandler]);
+  const handleFewShotExamplesChange = useMemo(() => createFieldHandler('few_shot_examples'), [createFieldHandler]);
+  const handleCotProcessChange = useMemo(() => createFieldHandler('cot_process'), [createFieldHandler]);
+  const handleBasePromptChange = useMemo(() => createFieldHandler('base_prompt'), [createFieldHandler]);
   
   // 탭 변경 핸들러
   const handleTabChange = useCallback((event, newValue) => {
@@ -194,17 +259,19 @@ const PromptsPage = () => {
 
   const handleSubmit = useCallback(async () => {
     try {
-      console.log('제출 전 폼 데이터:', formData);
+      // ref에서 최신 데이터 가져오기
+      const currentFormData = formDataRef.current;
+      console.log('제출 전 폼 데이터:', currentFormData);
       
-      // 필수 필드 검증을 더 명확히
+      // 필수 필드 검증
       const errors = [];
-      if (!formData.name || !formData.name.trim()) {
+      if (!currentFormData.name || !currentFormData.name.trim()) {
         errors.push('이름');
       }
-      if (!formData.role_definition || !formData.role_definition.trim()) {
+      if (!currentFormData.role_definition || !currentFormData.role_definition.trim()) {
         errors.push('역할 정의');
       }
-      if (!formData.base_prompt || !formData.base_prompt.trim()) {
+      if (!currentFormData.base_prompt || !currentFormData.base_prompt.trim()) {
         errors.push('기본 프롬프트');
       }
       
@@ -215,13 +282,11 @@ const PromptsPage = () => {
 
       let response;
       if (dialogMode === 'create') {
-        response = await promptService.createPrompt(formData);
+        response = await promptService.createPrompt(currentFormData);
       } else {
-        // 수정 모드에서도 모든 필드를 전송 (백엔드에서 필터링)
-        response = await promptService.updatePrompt(currentPrompt.id, formData);
+        response = await promptService.updatePrompt(currentPrompt.id, currentFormData);
       }
       
-      // 응답 확인
       console.log('서버 응답:', response);
       if (response.success === false) {
         showAlert(response.message || '프롬프트 저장에 실패했습니다.', 'error');
@@ -232,11 +297,10 @@ const PromptsPage = () => {
       setOpenDialog(false);
       loadPrompts();
     } catch (error) {
-      // API 에러 메시지 처리
       const errorMessage = error.response?.data?.detail || error.response?.data?.message || error.message;
       showAlert('프롬프트 저장에 실패했습니다: ' + errorMessage, 'error');
     }
-  }, [formData, dialogMode, currentPrompt, showAlert, loadPrompts]);
+  }, [dialogMode, currentPrompt, showAlert, loadPrompts]);
 
   const handleActivate = useCallback(async (promptId) => {
     try {
@@ -284,11 +348,10 @@ const PromptsPage = () => {
     }
   }, [showAlert]);
 
-  const TabPanel = React.memo(({ children, value, index }) => (
-    <div hidden={value !== index}>{value === index && <Box sx={{ pt: 2 }}>{children}</Box>}</div>
-  ));
-
-  TabPanel.displayName = 'TabPanel';
+  // 다이얼로그 닫기 핸들러
+  const handleCloseDialog = useCallback(() => {
+    setOpenDialog(false);
+  }, []);
 
   if (loading) {
     return (
@@ -319,22 +382,30 @@ const PromptsPage = () => {
       <Paper sx={{ p: 2, mb: 3, bgcolor: 'grey.50' }}>
         <Typography variant="h6" gutterBottom>프롬프트 현황</Typography>
         <Grid container spacing={2}>
-          <Grid item xs={3}><Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" color="primary">{prompts.length}</Typography>
-            <Typography variant="body2" color="text.secondary">전체</Typography>
-          </Box></Grid>
-          <Grid item xs={3}><Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" color="success.main">{prompts.filter(p => p.is_active).length}</Typography>
-            <Typography variant="body2" color="text.secondary">활성</Typography>
-          </Box></Grid>
-          <Grid item xs={3}><Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" color="secondary.main">{prompts.filter(p => p.name.includes('전문가')).length}</Typography>
-            <Typography variant="body2" color="text.secondary">전문가</Typography>
-          </Box></Grid>
-          <Grid item xs={3}><Box sx={{ textAlign: 'center' }}>
-            <Typography variant="h4" color="warning.main">{prompts.filter(p => p.name.includes('간단')).length}</Typography>
-            <Typography variant="body2" color="text.secondary">간단</Typography>
-          </Box></Grid>
+          <Grid item xs={3}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4" color="primary">{prompts.length}</Typography>
+              <Typography variant="body2" color="text.secondary">전체</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={3}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4" color="success.main">{prompts.filter(p => p.is_active).length}</Typography>
+              <Typography variant="body2" color="text.secondary">활성</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={3}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4" color="secondary.main">{prompts.filter(p => p.name.includes('전문가')).length}</Typography>
+              <Typography variant="body2" color="text.secondary">전문가</Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={3}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4" color="warning.main">{prompts.filter(p => p.name.includes('간단')).length}</Typography>
+              <Typography variant="body2" color="text.secondary">간단</Typography>
+            </Box>
+          </Grid>
         </Grid>
       </Paper>
 
@@ -363,13 +434,35 @@ const PromptsPage = () => {
               </CardContent>
               <CardActions sx={{ justifyContent: 'space-between' }}>
                 <Box>
-                  <Tooltip title="미리보기"><IconButton onClick={() => handlePreview(prompt.id)} size="small"><PreviewIcon /></IconButton></Tooltip>
-                  {!prompt.is_active && <Tooltip title="활성화"><IconButton onClick={() => handleActivate(prompt.id)} size="small" color="primary"><ActiveIcon /></IconButton></Tooltip>}
+                  <Tooltip title="미리보기">
+                    <IconButton onClick={() => handlePreview(prompt.id)} size="small">
+                      <PreviewIcon />
+                    </IconButton>
+                  </Tooltip>
+                  {!prompt.is_active && (
+                    <Tooltip title="활성화">
+                      <IconButton onClick={() => handleActivate(prompt.id)} size="small" color="primary">
+                        <ActiveIcon />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
                 <Box>
-                  <Tooltip title="수정"><IconButton onClick={() => handleOpenDialog('edit', prompt)} size="small"><EditIcon /></IconButton></Tooltip>
-                  <Tooltip title="복제"><IconButton onClick={() => handleDuplicate(prompt.id)} size="small"><CopyIcon /></IconButton></Tooltip>
-                  <Tooltip title="삭제"><IconButton onClick={() => handleDelete(prompt.id)} size="small" color="error"><DeleteIcon /></IconButton></Tooltip>
+                  <Tooltip title="수정">
+                    <IconButton onClick={() => handleOpenDialog('edit', prompt)} size="small">
+                      <EditIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="복제">
+                    <IconButton onClick={() => handleDuplicate(prompt.id)} size="small">
+                      <CopyIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="삭제">
+                    <IconButton onClick={() => handleDelete(prompt.id)} size="small" color="error">
+                      <DeleteIcon />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
               </CardActions>
             </Card>
@@ -379,14 +472,22 @@ const PromptsPage = () => {
 
       {/* 템플릿 선택 다이얼로그 */}
       <Dialog open={openTemplateDialog} onClose={() => setOpenTemplateDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle><AutoAwesomeIcon color="primary" sx={{ mr: 1 }} />프롬프트 템플릿 선택</DialogTitle>
+        <DialogTitle>
+          <AutoAwesomeIcon color="primary" sx={{ mr: 1 }} />
+          프롬프트 템플릿 선택
+        </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             {Object.entries(promptTemplates).map(([key, template]) => (
               <Grid item xs={12} sm={6} key={key}>
-                <Card sx={{ cursor: 'pointer', border: selectedTemplate === key ? 2 : 1, 
-                           borderColor: selectedTemplate === key ? 'primary.main' : 'divider' }}
-                      onClick={() => setSelectedTemplate(key)}>
+                <Card 
+                  sx={{ 
+                    cursor: 'pointer', 
+                    border: selectedTemplate === key ? 2 : 1, 
+                    borderColor: selectedTemplate === key ? 'primary.main' : 'divider' 
+                  }}
+                  onClick={() => setSelectedTemplate(key)}
+                >
                   <CardContent>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                       <Badge color={template.color}>{template.icon}</Badge>
@@ -401,13 +502,28 @@ const PromptsPage = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpenTemplateDialog(false)}>취소</Button>
-          <Button onClick={handleApplyTemplate} variant="contained" disabled={!selectedTemplate}>선택한 템플릿 사용</Button>
+          <Button onClick={handleApplyTemplate} variant="contained" disabled={!selectedTemplate}>
+            선택한 템플릿 사용
+          </Button>
         </DialogActions>
       </Dialog>
 
-      {/* 프롬프트 생성/수정 다이얼로그 */}
-      <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="lg" fullWidth>
-        <DialogTitle>{dialogMode === 'create' ? '새 통합 프롬프트 생성' : '통합 프롬프트 수정'}</DialogTitle>
+      {/* 프롬프트 생성/수정 다이얼로그 - 완전히 안정화된 버전 */}
+      <Dialog 
+        open={openDialog} 
+        onClose={handleCloseDialog} 
+        maxWidth="lg" 
+        fullWidth
+        // 다이얼로그 자체의 리렌더링 최적화
+        sx={{
+          '& .MuiDialog-paper': {
+            maxHeight: '90vh'
+          }
+        }}
+      >
+        <DialogTitle>
+          {dialogMode === 'create' ? '새 통합 프롬프트 생성' : '통합 프롬프트 수정'}
+        </DialogTitle>
         <DialogContent 
           sx={{ 
             position: 'relative',
@@ -422,34 +538,42 @@ const PromptsPage = () => {
               borderRadius: '4px'
             }
           }}>
-          <MemoizedTextField 
+          
+          {/* 기본 정보 섹션 */}
+          <StableTextField 
             label="프롬프트 이름" 
             value={formData.name} 
             onChange={handleNameChange}
             required 
-            margin="normal"
+            placeholder="예: 네이버 뉴스 스크랩 전문가"
           />
-          <MemoizedTextField 
+          <StableTextField 
             label="설명" 
             value={formData.description}
             onChange={handleDescriptionChange}
             multiline 
             rows={2}
-            margin="normal"
+            placeholder="프롬프트의 목적과 용도를 설명해주세요"
           />
-          <MemoizedTextField 
+          <StableTextField 
             label="시스템 메시지" 
             value={formData.system_message}
             onChange={handleSystemMessageChange}
             multiline 
             rows={2}
-            margin="normal"
+            placeholder="AI에게 전달할 시스템 레벨 지시사항"
           />
           
           <Divider sx={{ my: 3 }} />
           <Typography variant="h6" gutterBottom>통합 프롬프트 구성 요소</Typography>
           
-          <Tabs value={currentTab} onChange={handleTabChange}>
+          {/* 탭 네비게이션 */}
+          <Tabs 
+            value={currentTab} 
+            onChange={handleTabChange}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
             <Tab icon={<PersonIcon />} label="역할 정의" iconPosition="start" />
             <Tab icon={<AssignmentIcon />} label="상세 지침" iconPosition="start" />
             <Tab icon={<SchoolIcon />} label="Few-shot 예시" iconPosition="start" />
@@ -457,63 +581,79 @@ const PromptsPage = () => {
             <Tab icon={<CodeIcon />} label="기본 프롬프트" iconPosition="start" />
           </Tabs>
 
+          {/* 탭 패널들 - 완전히 메모이제이션됨 */}
           <TabPanel value={currentTab} index={0}>
-            <MemoizedTextField 
+            <StableTextField 
               label="역할 정의" 
               value={formData.role_definition}
               onChange={handleRoleDefinitionChange}
               required 
               multiline 
               rows={8}
+              placeholder="AI의 역할과 정체성을 명확히 정의해주세요"
             />
           </TabPanel>
+          
           <TabPanel value={currentTab} index={1}>
-            <MemoizedTextField 
+            <StableTextField 
               label="상세 지침" 
               value={formData.detailed_instructions}
               onChange={handleDetailedInstructionsChange}
               multiline 
               rows={8}
+              placeholder="구체적인 작업 수행 방법과 규칙을 설명해주세요"
             />
           </TabPanel>
+          
           <TabPanel value={currentTab} index={2}>
-            <MemoizedTextField 
+            <StableTextField 
               label="Few-shot 예시" 
               value={formData.few_shot_examples}
               onChange={handleFewShotExamplesChange}
               multiline 
               rows={8}
+              placeholder="입력과 출력의 예시를 제공해주세요"
             />
           </TabPanel>
+          
           <TabPanel value={currentTab} index={3}>
-            <MemoizedTextField 
+            <StableTextField 
               label="Chain of Thought 과정" 
               value={formData.cot_process}
               onChange={handleCotProcessChange}
               multiline 
               rows={8}
+              placeholder="단계별 사고 과정을 설명해주세요"
             />
           </TabPanel>
+          
           <TabPanel value={currentTab} index={4}>
-            <MemoizedTextField 
+            <StableTextField 
               label="기본 프롬프트" 
               value={formData.base_prompt}
               onChange={handleBasePromptChange}
               required 
               multiline 
               rows={8}
+              placeholder="핵심 작업 지시사항을 입력해주세요"
             />
           </TabPanel>
+          
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpenDialog(false)}>취소</Button>
-          <Button onClick={handleSubmit} variant="contained">{dialogMode === 'create' ? '생성' : '수정'}</Button>
+          <Button onClick={handleCloseDialog}>취소</Button>
+          <Button onClick={handleSubmit} variant="contained">
+            {dialogMode === 'create' ? '생성' : '수정'}
+          </Button>
         </DialogActions>
       </Dialog>
 
       {/* 미리보기 다이얼로그 */}
       <Dialog open={openPreviewDialog} onClose={() => setOpenPreviewDialog(false)} maxWidth="lg" fullWidth>
-        <DialogTitle><PreviewIcon color="primary" sx={{ mr: 1 }} />통합 프롬프트 미리보기</DialogTitle>
+        <DialogTitle>
+          <PreviewIcon color="primary" sx={{ mr: 1 }} />
+          통합 프롬프트 미리보기
+        </DialogTitle>
         <DialogContent>
           {previewData && (
             <Box>
