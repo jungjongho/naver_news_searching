@@ -57,11 +57,11 @@ class OpenAIClient:
             actual_model = self.MODEL_MAPPING.get(model, model)
             logger.info(f"OpenAI 분석 시작 - 요청 모델: {model}, 실제 모델: {actual_model}")
             
-            # 배치 크기에 따른 동적 max_tokens 설정
+            # 배치 크기에 따른 동적 max_tokens 설정 (증가)
             if batch_size > 1:
-                default_max_tokens = min(batch_size * 1000 + 2000, 32000)  # 배치 처리용
+                default_max_tokens = min(batch_size * 1500 + 3000, 40000)  # 배치 처리용 (증가)
             else:
-                default_max_tokens = 2000  # 단일 처리용
+                default_max_tokens = 3000  # 단일 처리용 (증가)
             
             # LLM 호출 로그 기록
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

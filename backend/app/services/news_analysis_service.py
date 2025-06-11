@@ -25,11 +25,12 @@ class NewsAnalysisService:
     """최적화된 뉴스 관련성 분석 서비스"""
     
     def __init__(self):
-        self.default_categories = {
-            "자사언급기사": 0,
-            "업계관련기사": 0, 
-            "건기식펫푸드관련기사": 0,
-            "기타": 0
+        # 고정 카테고리 제거 - 동적 필드 지원
+        self.default_stats = {
+            "total_items": 0,
+            "successfully_analyzed": 0,
+            "failed_analysis": 0,
+            "processing_errors": 0
         }
         # 로깅 설정
         self.verbose_logging = logger.isEnabledFor(logging.DEBUG)
@@ -90,7 +91,7 @@ class NewsAnalysisService:
             # 5. 결과 저장
             result_path = self._save_analysis_results(analyzed_data, file_path)
             
-            logger.info(f"뉴스 분석 완료: {stats['relevant_items']}/{stats['total_items']} 관련")
+            logger.info(f"뉴스 분석 완료: {stats['successfully_analyzed']}/{stats['total_items']} 성공")
             
             return result_path, stats
             
@@ -112,12 +113,13 @@ class NewsAnalysisService:
         total_items = len(news_data)
         analyzed_data = []
         
-        # 통계 초기화
+        # 통계 초기화 (동적 필드)
         stats = {
             "total_items": total_items,
-            "relevant_items": 0,
-            "categories": self.default_categories.copy(),
-            "processing_errors": 0
+            "successfully_analyzed": 0,
+            "failed_analysis": 0,
+            "processing_errors": 0,
+            "field_statistics": {}
         }
         
         start_time = time.time()
@@ -150,11 +152,8 @@ class NewsAnalysisService:
                     except Exception as ws_error:
                         logger.warning(f"WebSocket 중지 메시지 전송 실패: {ws_error}")
                 
-                # 현재까지의 결과를 반환
-                stats["relevant_ratio"] = (stats["relevant_items"] / len(analyzed_data) 
-                                           if len(analyzed_data) > 0 else 0)
-                stats["relevant_percent"] = round(stats["relevant_ratio"] * 100, 1)
-                stats["processing_time"] = round((time.time() - start_time) / 60, 1)
+                # 현재까지의 결과를 반환 (동적 필드)
+                self._finalize_stats(stats, start_time)
                 stats["total_items"] = len(analyzed_data)  # 실제 처리된 개수로 업데이트
                 stats["stopped_by_user"] = True
                 return analyzed_data, stats
@@ -205,19 +204,23 @@ class NewsAnalysisService:
                 if current_index % self.console_log_interval == 0 or current_index == total_items:
                     self._log_analysis_result(current_index, total_items, analysis_result)
                 
-                # WebSocket 완료 상태 전송
+                            # WebSocket 완료 상태 전송 (동적 필드)
                 if session_id:
                     try:
+                        # 첫 번째 분석 필드를 카테고리로 사용
+                        first_field = next(iter(analysis_result.keys()), "unknown")
+                        category_value = analysis_result.get(first_field, "unknown")
+                        
                         await manager.send_progress_update(
                             session_id=session_id,
                             current=current_index,
                             total=total_items,
-                            category=analysis_result['category'],
+                            category=str(category_value),
                             confidence=analysis_result.get('confidence', 0),
                             article_title=title[:100]
                         )
                         if current_index % 1 == 0:  # 모든 기사마다 로그
-                            logger.info(f"WebSocket 완료 전송: {current_index}/{total_items} - {analysis_result['category']}")
+                            logger.info(f"WebSocket 완료 전송: {current_index}/{total_items} - {category_value}")
                     except Exception as ws_error:
                         logger.warning(f"WebSocket 완료 메시지 전송 실패: {ws_error}")
                 
@@ -270,8 +273,9 @@ class NewsAnalysisService:
             # 최적화된 JSON 파싱 사용
             result = data_processor.safe_json_parse(response_text)
             
-            # 결과 로깅
-            logger.info(f"파싱 결과 - 카테고리: {result['category']}, 신뢰도: {result['confidence']}")
+            # 결과 로깅 (동적 필드)
+            first_field = next(iter(result.keys()), "unknown")
+            logger.info(f"파싱 결과 - 첫 번째 필드: {first_field}, 값: {result.get(first_field, 'N/A')}")
             
             return result
             
@@ -330,20 +334,25 @@ class NewsAnalysisService:
 내용: {content}"""
     
     def _update_stats(self, stats: Dict[str, Any], analysis_result: Dict[str, Any]):
-        """통계 업데이트"""
-        category = analysis_result["category"]
-        if category != "기타":
-            stats["relevant_items"] += 1
-        
-        if category in stats["categories"]:
-            stats["categories"][category] += 1
+        """통계 업데이트 (동적 필드)"""
+        # 분석 성공/실패 통계
+        if analysis_result.get("analysis_status") == "failed":
+            stats["failed_analysis"] += 1
         else:
-            stats["categories"]["기타"] += 1
+            stats["successfully_analyzed"] += 1
+        
+        # 각 필드별 값 통계
+        for key, value in analysis_result.items():
+            if key not in stats["field_statistics"]:
+                stats["field_statistics"][key] = {}
+            
+            value_str = str(value) if value is not None else "None"
+            stats["field_statistics"][key][value_str] = stats["field_statistics"][key].get(value_str, 0) + 1
     
     def _handle_analysis_error(self, error: Exception, current_index: int, 
                               news_item: Dict[str, Any], analyzed_data: List[Dict[str, Any]], 
                               stats: Dict[str, Any]):
-        """분석 오류 처리"""
+        """분석 오류 처리 (동적 필드)"""
         logger.error(f"뉴스 항목 {current_index} 분석 실패: {str(error)}")
         stats["processing_errors"] += 1
         
@@ -351,7 +360,9 @@ class NewsAnalysisService:
         default_result = data_processor._get_default_analysis_result()
         analyzed_item = {**news_item, **default_result}
         analyzed_data.append(analyzed_item)
-        stats["categories"]["기타"] += 1
+        
+        # 오류 통계 업데이트
+        self._update_stats(stats, default_result)
     
     def _log_progress(self, current: int, total: int, start_time: float):
         """진행률 로깅"""
@@ -363,28 +374,34 @@ class NewsAnalysisService:
                    f"처리 속도: {round(processing_rate, 1)}기사/분")
     
     def _log_analysis_result(self, current: int, total: int, analysis_result: Dict[str, Any]):
-        """분석 결과 로깅"""
+        """분석 결과 로깅 (동적 필드)"""
         if self.verbose_logging:
             progress_percent = round((current / total) * 100, 1)
+            
+            # 첫 번째 필드를 카테고리로 사용
+            first_field = next(iter(analysis_result.keys()), "unknown")
+            category_value = analysis_result.get(first_field, "unknown")
+            
             confidence = round(analysis_result.get('confidence', 0) * 100, 1)
             print(f"[분석 완료] {current}/{total} ({progress_percent}%) - "
-                  f"카테고리: {analysis_result['category']} (신뢰도: {confidence}%)")
+                  f"카테고리: {category_value} (신뢰도: {confidence}%)")
     
     def _finalize_stats(self, stats: Dict[str, Any], start_time: float):
-        """최종 통계 계산"""
-        stats["relevant_ratio"] = (stats["relevant_items"] / stats["total_items"] 
-                                  if stats["total_items"] > 0 else 0)
-        stats["relevant_percent"] = round(stats["relevant_ratio"] * 100, 1)
+        """최종 통계 계산 (동적 필드)"""
+        stats["analysis_success_rate"] = (stats["successfully_analyzed"] / stats["total_items"] 
+                                          if stats["total_items"] > 0 else 0)
+        stats["analysis_success_percent"] = round(stats["analysis_success_rate"] * 100, 1)
         stats["processing_time"] = round((time.time() - start_time) / 60, 1)
     
     def _print_final_summary(self, stats: Dict[str, Any], start_time: float):
-        """최종 요약 출력"""
+        """최종 요약 출력 (동적 필드)"""
         processing_time = round((time.time() - start_time) / 60, 1)
         processing_rate = round(stats['total_items'] / processing_time, 1) if processing_time > 0 else 0
         
-        print(f"\n=== 관련성 평가 완료 ===")
+        print(f"\n=== 분석 완료 ===")
         print(f"총 처리: {stats['total_items']}개")
-        print(f"관련 기사: {stats['relevant_items']}개 ({stats['relevant_percent']}%)")
+        print(f"성공 분석: {stats['successfully_analyzed']}개 ({stats.get('analysis_success_percent', 0)}%)")
+        print(f"실패 분석: {stats['failed_analysis']}개")
         print(f"오류: {stats['processing_errors']}개")
         print(f"소요 시간: {processing_time}분")
         print(f"처리 속도: {processing_rate}기사/분")
@@ -429,12 +446,13 @@ def _add_batch_processing_methods():
         total_items = len(news_data)
         analyzed_data = []
         
-        # 통계 초기화
+        # 통계 초기화 (동적 필드)
         stats = {
             "total_items": total_items,
-            "relevant_items": 0,
-            "categories": self.default_categories.copy(),
-            "processing_errors": 0
+            "successfully_analyzed": 0,
+            "failed_analysis": 0,
+            "processing_errors": 0,
+            "field_statistics": {}
         }
         
         start_time = time.time()
@@ -492,15 +510,20 @@ def _add_batch_processing_methods():
                     # 통계 업데이트
                     self._update_stats(stats, result)
                     
-                    # WebSocket 진행률 전송
+                    # WebSocket 진행률 전송 (동적 필드)
                     if session_id:
                         try:
                             title, _ = data_processor.extract_text_content(batch_items[i])
+                            
+                            # 첫 번째 분석 필드를 카테고리로 사용
+                            first_field = next(iter(result.keys()), "unknown")
+                            category_value = result.get(first_field, "unknown")
+                            
                             await manager.send_progress_update(
                                 session_id=session_id,
                                 current=current_index,
                                 total=total_items,
-                                category=result['category'],
+                                category=str(category_value),
                                 confidence=result.get('confidence', 0),
                                 article_title=title[:100]
                             )
@@ -532,7 +555,9 @@ def _add_batch_processing_methods():
                     analyzed_data.append(analyzed_item)
                     
                     stats["processing_errors"] += 1
-                    stats["categories"]["기타"] += 1
+                    
+                    # 오류 통계 업데이트
+                    self._update_stats(stats, default_result)
                     
                     # WebSocket 오류 전송
                     if session_id:
@@ -633,8 +658,14 @@ def _add_batch_processing_methods():
         
         return f"""{base_prompt}
 
-분석할 뉴스 기사들:
+분석할 뉴스 기사들 (총 {len(batch_items)}개):
 {articles_text}
+
+## 중요 지시사항:
+1. 위의 모든 기사({len(batch_items)}개)를 반드시 분석하세요
+2. 누락된 기사가 있으면 안 됩니다
+3. 순서대로 분석 결과를 제공하세요
+4. 응답에 반드시 {len(batch_items)}개의 분석 결과가 포함되어야 합니다
 """
     
     def _get_default_batch_prompt(self) -> str:
@@ -699,13 +730,15 @@ def _add_batch_processing_methods():
                     if isinstance(parsed_array, list):
                         logger.info(f"JSON 배열 파싱 성공: {len(parsed_array)}개 항목")
                         
-                        # 각 항목 검증 및 정규화
+        # 각 항목 검증 및 정규화 (동적 필드)
                         validated_results = []
                         for i, item in enumerate(parsed_array):
                             if isinstance(item, dict):
-                                validated_item = self._validate_and_normalize_batch_item(item)
+                                validated_item = data_processor._validate_and_normalize_result(item)
                                 validated_results.append(validated_item)
-                                logger.info(f"항목 {i+1} 검증 완료: {validated_item['category']}")
+                                # 첫 번째 필드로 로깅
+                                first_field = next(iter(validated_item.keys()), "unknown")
+                                logger.info(f"항목 {i+1} 검증 완료: {first_field}={validated_item.get(first_field, 'N/A')}")
                             else:
                                 logger.warning(f"항목 {i+1}이 딕셔너리가 아닙니다: {type(item)}")
                                 validated_results.append(data_processor._get_default_analysis_result())
@@ -725,72 +758,13 @@ def _add_batch_processing_methods():
             return [data_processor._get_default_analysis_result() for _ in range(expected_count)]
     
     def _validate_and_normalize_batch_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """배치 처리를 위한 개별 항목 검증 및 정규화"""
+        """배치 처리를 위한 개별 항목 검증 및 정규화 (동적 필드)"""
         
-        # 기본값으로 시작
-        validated = data_processor._get_default_analysis_result()
-        
-        # 키 매핑 (대소문자 및 오타 처리)
-        key_mapping = {
-            'Category': 'category',
-            'Confidence': 'confidence',
-            'Keywords': 'keywords', 
-            'Relation': 'relation',
-            'Reason': 'reason',
-            'Importance': 'importance',
-            'Recommendation_reason': 'recommendation_reason',
-            'Impoortance': 'importance',  # 오타 처리
-            'Recommnedation_reason': 'recommendation_reason'  # 오타 처리
-        }
-        
-        # 키 정규화
-        normalized_item = {}
-        for key, value in item.items():
-            normalized_key = key_mapping.get(key, key.lower())
-            normalized_item[normalized_key] = value
-        
-        # category 검증
-        valid_categories = ['자사언급기사', '업계관련기사', '건기식펫푸드관련기사', '기타']
-        if 'category' in normalized_item and normalized_item['category'] in valid_categories:
-            validated['category'] = normalized_item['category']
-        
-        # confidence 검증 (0-1 범위)
-        if 'confidence' in normalized_item:
-            try:
-                confidence = float(normalized_item['confidence'])
-                if 0 <= confidence <= 1:
-                    validated['confidence'] = confidence
-            except (ValueError, TypeError):
-                pass
-        
-        # relation 검증 (0-1 범위)
-        if 'relation' in normalized_item:
-            try:
-                relation = float(normalized_item['relation'])
-                if 0 <= relation <= 1:
-                    validated['relation'] = relation
-            except (ValueError, TypeError):
-                pass
-        
-        # keywords 검증
-        if 'keywords' in normalized_item and isinstance(normalized_item['keywords'], list):
-            validated['keywords'] = [str(kw) for kw in normalized_item['keywords'][:5]]
-        
-        # importance 검증
-        if 'importance' in normalized_item and normalized_item['importance'] in ['상', '중', '하']:
-            validated['importance'] = normalized_item['importance']
-        
-        # 문자열 필드 검증
-        if 'reason' in normalized_item and isinstance(normalized_item['reason'], str):
-            validated['reason'] = normalized_item['reason']
-        
-        if 'recommendation_reason' in normalized_item and isinstance(normalized_item['recommendation_reason'], str):
-            validated['recommendation_reason'] = normalized_item['recommendation_reason']
-        
-        return validated
+        # data_processor의 동적 검증 사용
+        return data_processor._validate_and_normalize_result(item)
     
     def _adjust_batch_result_count(self, results: List[Dict[str, Any]], expected_count: int) -> List[Dict[str, Any]]:
-        """배치 결과 개수를 예상 개수에 맞게 조정"""
+        """배치 결과 개수를 예상 개수에 맞게 조정 (강화된 검증)"""
         
         if len(results) == expected_count:
             logger.info(f"결과 개수 일치: {len(results)}개")
@@ -799,9 +773,18 @@ def _add_batch_processing_methods():
             logger.warning(f"결과 초과: {len(results)} > {expected_count}, 앞의 {expected_count}개만 사용")
             return results[:expected_count]
         else:
-            logger.warning(f"결과 부족: {len(results)} < {expected_count}, 기본값으로 보완")
+            logger.error(f"심각한 문제: 결과 부족 {len(results)} < {expected_count}")
+            logger.error(f"AI가 {expected_count}개 중 {len(results)}개만 분석했습니다. 프롬프트 수정이 필요합니다.")
+            
+            # 부족한 결과를 기본값으로 채우는 대신 오류 로깅
+            missing_count = expected_count - len(results)
+            logger.warning(f"{missing_count}개 기사에 대한 기본값 추가")
+            
             while len(results) < expected_count:
-                results.append(data_processor._get_default_analysis_result())
+                missing_article_result = data_processor._get_default_analysis_result()
+                missing_article_result["analysis_note"] = f"기사 {len(results) + 1}: AI 분석 누락됨 - 프롬프트 수정 필요"
+                results.append(missing_article_result)
+            
             return results
     
     def _extract_individual_json_objects(self, response_text: str, expected_count: int) -> List[Dict[str, Any]]:
@@ -821,10 +804,12 @@ def _add_batch_processing_methods():
                 try:
                     logger.info(f"JSON 객체 {i+1} 파싱 시도: {json_str[:100]}...")
                     
-                    # data_processor.safe_json_parse 사용 (단일 처리와 동일)
+                    # data_processor.safe_json_parse 사용 (단일 처리와 동일) (동적 필드)
                     result = data_processor.safe_json_parse(json_str)
                     validated_results.append(result)
-                    logger.info(f"JSON 객체 {i+1} 파싱 성공: {result['category']}")
+                    # 첫 번째 필드로 로깅
+                    first_field = next(iter(result.keys()), "unknown")
+                    logger.info(f"JSON 객체 {i+1} 파싱 성공: {first_field}={result.get(first_field, 'N/A')}")
                     
                 except Exception as e:
                     logger.warning(f"JSON 객체 {i+1} 파싱 실패: {e}")
@@ -837,60 +822,10 @@ def _add_batch_processing_methods():
             return [data_processor._get_default_analysis_result() for _ in range(expected_count)]
     
     def _validate_analysis_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """분석 결과 유효성 검사 및 기본값 추가"""
+        """분석 결과 유효성 검사 및 기본값 추가 (동적 필드)"""
         
-        validated = data_processor._get_default_analysis_result()
-        
-        # 대소문자 변환을 위한 키 매핑
-        key_mapping = {
-            'Category': 'category',
-            'Confidence': 'confidence', 
-            'Keywords': 'keywords',
-            'Relation': 'relation',
-            'Reason': 'reason',
-            'Importance': 'importance',
-            'Recommendation_reason': 'recommendation_reason',
-            'Impoortance': 'importance',  # 오타 처리
-            'Recommnedation_reason': 'recommendation_reason'  # 오타 처리
-        }
-        
-        # 키 매핑 적용
-        normalized_result = {}
-        for key, value in result.items():
-            mapped_key = key_mapping.get(key, key.lower())
-            normalized_result[mapped_key] = value
-        
-        # category 검사
-        if 'category' in normalized_result and normalized_result['category'] in [
-            '자사언급기사', '업계관련기사', '건기식펫푸드관련기사', '기타'
-        ]:
-            validated['category'] = normalized_result['category']
-        
-        # confidence 검사
-        if 'confidence' in normalized_result and isinstance(normalized_result['confidence'], (int, float)):
-            validated['confidence'] = max(0.0, min(1.0, float(normalized_result['confidence'])))
-        
-        # relation 검사
-        if 'relation' in normalized_result and isinstance(normalized_result['relation'], (int, float)):
-            validated['relation'] = max(0.0, min(1.0, float(normalized_result['relation'])))
-        
-        # keywords 검사
-        if 'keywords' in normalized_result and isinstance(normalized_result['keywords'], list):
-            validated['keywords'] = [str(kw) for kw in normalized_result['keywords'][:5]]  # 최대 5개
-        
-        # reason 검사
-        if 'reason' in normalized_result and isinstance(normalized_result['reason'], str):
-            validated['reason'] = normalized_result['reason']
-        
-        # importance 검사
-        if 'importance' in normalized_result and normalized_result['importance'] in ['상', '중', '하']:
-            validated['importance'] = normalized_result['importance']
-        
-        # recommendation_reason 검사
-        if 'recommendation_reason' in normalized_result and isinstance(normalized_result['recommendation_reason'], str):
-            validated['recommendation_reason'] = normalized_result['recommendation_reason']
-        
-        return validated
+        # data_processor의 동적 검증 사용
+        return data_processor._validate_and_normalize_result(result)
     
     # 메서드들을 클래스에 바인딩
     NewsAnalysisService._analyze_batch_optimized_v2 = _analyze_batch_optimized_v2

@@ -60,68 +60,33 @@ class DataProcessor:
     
     @staticmethod
     def _validate_and_normalize_result(result: Dict[str, Any]) -> Dict[str, Any]:
-        """결과 검증 및 정규화"""
-        # 필수 필드 기본값 설정
-        result.setdefault("category", "기타")
-        result.setdefault("confidence", 0.5)
-        result.setdefault("keywords", [])
-        result.setdefault("relation", 0.5)
-        result.setdefault("reason", "기본 분석")
-        result.setdefault("importance", "중")
-        result.setdefault("recommendation_reason", "대기업 또는 일반 기사")
+        """결과 검증 및 정규화 (동적 필드 지원)"""
+        if not isinstance(result, dict):
+            return {}
         
-        # 카테고리명 정규화 (매핑 테이블 사용)
-        category_mapping = {
-            "자사 언급기사": "자사언급기사",
-            "업계 관련기사": "업계관련기사", 
-            "건기식·펫푸드 관련기사": "건기식펫푸드관련기사",
-            "건강기능식품·펫푸드": "건기식펫푸드관련기사",
-            "건기식펫푸드": "건기식펫푸드관련기사"
-        }
+        # 기본 정규화만 수행 (고정 필드 없음)
+        normalized_result = {}
         
-        category = result["category"]
-        if category in category_mapping:
-            result["category"] = category_mapping[category]
-        
-        # confidence 값 검증 (0-1 범위)
-        confidence = result["confidence"]
-        if not isinstance(confidence, (int, float)) or confidence < 0 or confidence > 1:
-            result["confidence"] = 0.5
-        
-        # relation 값 검증 (0-1 범위)
-        relation = result.get("relation", 0.5)
-        if not isinstance(relation, (int, float)) or relation < 0 or relation > 1:
-            result["relation"] = 0.5
-        
-        # importance 값 검증
-        valid_importance = ["상", "중", "하"]
-        if result["importance"] not in valid_importance:
-            result["importance"] = "중"
-        
-        # keywords가 리스트인지 확인
-        if not isinstance(result["keywords"], list):
-            result["keywords"] = []
-        
-        # 문자열 필드 검증
-        if not isinstance(result.get("reason", ""), str):
-            result["reason"] = "기본 분석"
+        for key, value in result.items():
+            # 키 정규화 (대소문자 통일)
+            normalized_key = key.lower().strip()
             
-        if not isinstance(result.get("recommendation_reason", ""), str):
-            result["recommendation_reason"] = "일반 대기업 기사"
+            # 값 기본 검증
+            if value is None:
+                normalized_result[normalized_key] = ""
+            elif isinstance(value, (list, dict)):
+                normalized_result[normalized_key] = value
+            else:
+                normalized_result[normalized_key] = str(value)
         
-        return result
+        return normalized_result
     
     @staticmethod
     def _get_default_analysis_result() -> Dict[str, Any]:
-        """기본 분석 결과 반환"""
+        """기본 분석 결과 반환 (동적 필드)"""
         return {
-            "category": "기타",
-            "confidence": 0.0,
-            "keywords": [],
-            "relation": 0.0,
-            "reason": "분석 실패 또는 기본값",
-            "importance": "하",
-            "recommendation_reason": "분석이 수행되지 않음"
+            "analysis_status": "failed",
+            "analysis_note": "분석 실패 또는 기본값이 사용됨"
         }
     
     @staticmethod
@@ -184,35 +149,49 @@ class DataProcessor:
     
     @staticmethod
     def calculate_statistics(analyzed_data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """분석 결과 통계 계산"""
+        """분석 결과 통계 계산 (동적 필드)"""
         if not analyzed_data:
             return {
                 "total_items": 0,
-                "relevant_items": 0,
-                "categories": {},
-                "relevant_ratio": 0.0,
-                "relevant_percent": 0.0
+                "successfully_analyzed": 0,
+                "failed_analysis": 0,
+                "analysis_success_rate": 0.0
             }
         
         total_items = len(analyzed_data)
-        categories = {}
-        relevant_items = 0
+        successfully_analyzed = 0
+        failed_analysis = 0
+        
+        # 각 필드별 통계
+        field_statistics = {}
         
         for item in analyzed_data:
-            category = item.get("category", "기타")
-            categories[category] = categories.get(category, 0) + 1
+            # 분석 성공/실패 통계
+            if item.get("analysis_status") == "failed":
+                failed_analysis += 1
+            else:
+                successfully_analyzed += 1
             
-            if category != "기타":
-                relevant_items += 1
+            # 각 필드별 값 통계
+            for key, value in item.items():
+                if key.startswith(('title', 'content', 'description', '제목', '내용', 'link', 'pubdate')):
+                    # 원본 데이터 필드는 제외
+                    continue
+                    
+                if key not in field_statistics:
+                    field_statistics[key] = {}
+                
+                value_str = str(value) if value is not None else "None"
+                field_statistics[key][value_str] = field_statistics[key].get(value_str, 0) + 1
         
-        relevant_ratio = relevant_items / total_items if total_items > 0 else 0
+        success_rate = successfully_analyzed / total_items if total_items > 0 else 0
         
         return {
             "total_items": total_items,
-            "relevant_items": relevant_items,
-            "categories": categories,
-            "relevant_ratio": relevant_ratio,
-            "relevant_percent": round(relevant_ratio * 100, 1)
+            "successfully_analyzed": successfully_analyzed,
+            "failed_analysis": failed_analysis,
+            "analysis_success_rate": round(success_rate * 100, 1),
+            "field_statistics": field_statistics
         }
 
 
