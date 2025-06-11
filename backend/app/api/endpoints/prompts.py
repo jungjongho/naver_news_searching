@@ -150,24 +150,24 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
         final_role_definition = request.role_definition if request.role_definition is not None else existing_prompt.role_definition
         final_base_prompt = request.base_prompt if request.base_prompt is not None else existing_prompt.base_prompt
         
+        logger.info(f"최종 검증 값들: name='{final_name}', role_definition='{final_role_definition}', base_prompt='{final_base_prompt}'")
+        
         # 필수 필드 검증
+        validation_errors = []
         if not final_name or not final_name.strip():
-            return PromptResponse(
-                success=False,
-                message="프롬프트 이름은 필수 입력항목입니다.",
-                errors={"validation_error": "Name is required"}
-            )
+            validation_errors.append("이름")
         if not final_role_definition or not final_role_definition.strip():
-            return PromptResponse(
-                success=False,
-                message="역할 정의는 필수 입력항목입니다.",
-                errors={"validation_error": "Role definition is required"}
-            )
+            validation_errors.append("역할 정의")
         if not final_base_prompt or not final_base_prompt.strip():
+            validation_errors.append("기본 프롬프트")
+            
+        if validation_errors:
+            error_message = f"다음 필드는 필수입니다: {', '.join(validation_errors)}"
+            logger.error(f"검증 실패: {error_message}")
             return PromptResponse(
                 success=False,
-                message="기본 프롬프트는 필수 입력항목입니다.",
-                errors={"validation_error": "Base prompt is required"}
+                message=error_message,
+                errors={"validation_error": f"Required fields missing: {validation_errors}"}
             )
         
         prompt = prompt_service.update_prompt(prompt_id, request)

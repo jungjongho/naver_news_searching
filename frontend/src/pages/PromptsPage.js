@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box, Typography, Button, Card, CardContent, CardActions, CardHeader,
   Grid, Chip, IconButton, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -14,47 +14,31 @@ import {
 } from '@mui/icons-material';
 import { promptService } from '../api/promptService';
 
-// 안정화된 TextField 컴포넌트 - 리렌더링 완전 방지
-const StableTextField = React.memo(({ label, value, onChange, required, multiline, rows, ...props }) => {
-  const inputRef = useRef(null);
-  const [internalValue, setInternalValue] = useState(value);
-  
-  // 외부 value가 변경될 때만 내부 값 동기화 (초기 로드 시에만)
-  useEffect(() => {
-    setInternalValue(value);
-  }, [value]);
-  
-  const handleChange = useCallback((e) => {
-    const newValue = e.target.value;
-    // 오직 내부 상태만 업데이트 - 부모에게 전달하지 않음
-    setInternalValue(newValue);
-  }, []);
-  
-  // 현재 값을 가져올 수 있는 함수를 ref를 통해 노출
-  useImperativeHandle(props.inputRef, () => ({
-    getValue: () => internalValue,
-    setValue: (newValue) => setInternalValue(newValue)
-  }), [internalValue]);
-  
+// 안정화된 TextField 컴포넌트 - 리렌더링 방지
+const MemoizedTextField = React.memo(({ 
+  label, 
+  value, 
+  onChange, 
+  required = false, 
+  multiline = false, 
+  rows = 1, 
+  ...props 
+}) => {
   return (
     <TextField
-      ref={inputRef}
       label={label}
-      fullWidth
+      value={value || ''}
+      onChange={onChange}
+      required={required}
       multiline={multiline}
       rows={rows}
-      value={internalValue}
-      onChange={handleChange}
-      required={required}
-      InputProps={{
-        style: { resize: 'vertical' }
-      }}
+      fullWidth
       {...props}
     />
   );
 });
 
-StableTextField.displayName = 'StableTextField';
+MemoizedTextField.displayName = 'MemoizedTextField';
 
 const PromptsPage = () => {
   const [prompts, setPrompts] = useState([]);
@@ -69,27 +53,18 @@ const PromptsPage = () => {
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [currentTab, setCurrentTab] = useState(0);
   const [formData, setFormData] = useState({
-    name: '', description: '', role_definition: '', detailed_instructions: '',
-    few_shot_examples: '', cot_process: '', base_prompt: '',
+    name: '',
+    description: '',
+    role_definition: '',
+    detailed_instructions: '',
+    few_shot_examples: '',
+    cot_process: '',
+    base_prompt: '',
     system_message: '정확한 JSON 형식으로만 응답하세요.'
   });
-  
-  // 다이얼로그 컴텐츠 ref
-  const dialogContentRef = useRef(null);
-  
-  // 각 필드에 대한 ref
-  const fieldRefs = useRef({
-    name: null,
-    description: null,
-    system_message: null,
-    role_definition: null,
-    detailed_instructions: null,
-    few_shot_examples: null,
-    cot_process: null,
-    base_prompt: null
-  });
 
-  const promptTemplates = {
+  // 템플릿은 memoize하여 불필요한 리렌더링 방지
+  const promptTemplates = useMemo(() => ({
     enhanced: {
       name: '네이버 뉴스 스크랩 전문가',
       description: '네이버 뉴스 스크랩 업무에 최적화된 통합 프롬프트',
@@ -114,13 +89,13 @@ const PromptsPage = () => {
         base_prompt: '기사를 분류하세요.'
       }
     }
-  };
+  }), []);
 
   useEffect(() => { 
     loadPrompts(); 
   }, []);
 
-  const loadPrompts = async () => {
+  const loadPrompts = useCallback(async () => {
     try {
       setLoading(true);
       const response = await promptService.getAllPrompts();
@@ -130,46 +105,46 @@ const PromptsPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const showAlert = (message, severity = 'info') => {
+  const showAlert = useCallback((message, severity = 'info') => {
     setAlert({ show: true, message, severity });
     setTimeout(() => setAlert({ show: false, message: '', severity: 'info' }), 5000);
-  };
+  }, []);
 
-  const handleOpenDialog = (mode, prompt = null) => {
+  const handleOpenDialog = useCallback((mode, prompt = null) => {
     setDialogMode(mode);
     setCurrentTab(0);
     
     if (mode === 'edit' && prompt) {
       setCurrentPrompt(prompt);
       setFormData({
-        name: prompt.name || '', description: prompt.description || '',
-        role_definition: prompt.role_definition || '', detailed_instructions: prompt.detailed_instructions || '',
-        few_shot_examples: prompt.few_shot_examples || '', cot_process: prompt.cot_process || '',
-        base_prompt: prompt.base_prompt || '', system_message: prompt.system_message || '정확한 JSON 형식으로만 응답하세요.'
+        name: prompt.name || '',
+        description: prompt.description || '',
+        role_definition: prompt.role_definition || '',
+        detailed_instructions: prompt.detailed_instructions || '',
+        few_shot_examples: prompt.few_shot_examples || '',
+        cot_process: prompt.cot_process || '',
+        base_prompt: prompt.base_prompt || '',
+        system_message: prompt.system_message || '정확한 JSON 형식으로만 응답하세요.'
       });
-      
-      // ref를 통해 값 설정 (디여레이 후 설정)
-      setTimeout(() => {
-        Object.keys(fieldRefs.current).forEach(key => {
-          if (fieldRefs.current[key]) {
-            fieldRefs.current[key].setValue(prompt[key] || (key === 'system_message' ? '정확한 JSON 형식으로만 응답하세요.' : ''));
-          }
-        });
-      }, 100);
     } else {
       setCurrentPrompt(null);
       setFormData({
-        name: '', description: '', role_definition: '', detailed_instructions: '',
-        few_shot_examples: '', cot_process: '', base_prompt: '',
+        name: '',
+        description: '',
+        role_definition: '',
+        detailed_instructions: '',
+        few_shot_examples: '',
+        cot_process: '',
+        base_prompt: '',
         system_message: '정확한 JSON 형식으로만 응답하세요.'
       });
     }
     setOpenDialog(true);
-  };
+  }, []);
 
-  const handleApplyTemplate = () => {
+  const handleApplyTemplate = useCallback(() => {
     if (selectedTemplate) {
       const template = promptTemplates[selectedTemplate];
       setFormData(prev => ({ ...prev, name: template.name, description: template.description, ...template.template }));
@@ -177,47 +152,77 @@ const PromptsPage = () => {
       setSelectedTemplate('');
       handleOpenDialog('create');
     }
-  };
-  
+  }, [selectedTemplate, promptTemplates, handleOpenDialog]);
 
-  // 폼 데이터 변경 핸들러 - 이제 비어있어도 됨 (참고용)
-  const handleFormDataChange = useCallback((field, value) => {
-    // 아무것도 하지 않음 - ref가 상태 관리
+  // 개별 필드별 핸들러를 memoize - 리렌더링 방지의 핵심
+  const handleNameChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, name: e.target.value }));
+  }, []);
+
+  const handleDescriptionChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, description: e.target.value }));
+  }, []);
+
+  const handleSystemMessageChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, system_message: e.target.value }));
+  }, []);
+
+  const handleRoleDefinitionChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, role_definition: e.target.value }));
+  }, []);
+
+  const handleDetailedInstructionsChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, detailed_instructions: e.target.value }));
+  }, []);
+
+  const handleFewShotExamplesChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, few_shot_examples: e.target.value }));
+  }, []);
+
+  const handleCotProcessChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, cot_process: e.target.value }));
+  }, []);
+
+  const handleBasePromptChange = useCallback((e) => {
+    setFormData(prev => ({ ...prev, base_prompt: e.target.value }));
   }, []);
   
-  // 탭 변경 핸들러 - 스크롤 위치 보존 제거  
+  // 탭 변경 핸들러
   const handleTabChange = useCallback((event, newValue) => {
     setCurrentTab(newValue);
   }, []);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     try {
-      // ref를 통해 현재 값들을 수집
-      const currentFormData = {
-        name: fieldRefs.current.name?.getValue() || '',
-        description: fieldRefs.current.description?.getValue() || '',
-        system_message: fieldRefs.current.system_message?.getValue() || '',
-        role_definition: fieldRefs.current.role_definition?.getValue() || '',
-        detailed_instructions: fieldRefs.current.detailed_instructions?.getValue() || '',
-        few_shot_examples: fieldRefs.current.few_shot_examples?.getValue() || '',
-        cot_process: fieldRefs.current.cot_process?.getValue() || '',
-        base_prompt: fieldRefs.current.base_prompt?.getValue() || ''
-      };
+      console.log('제출 전 폼 데이터:', formData);
       
-      if (!currentFormData.name.trim() || !currentFormData.role_definition.trim() || !currentFormData.base_prompt.trim()) {
-        showAlert('이름, 역할 정의, 기본 프롬프트는 필수입니다.', 'error');
+      // 필수 필드 검증을 더 명확히
+      const errors = [];
+      if (!formData.name || !formData.name.trim()) {
+        errors.push('이름');
+      }
+      if (!formData.role_definition || !formData.role_definition.trim()) {
+        errors.push('역할 정의');
+      }
+      if (!formData.base_prompt || !formData.base_prompt.trim()) {
+        errors.push('기본 프롬프트');
+      }
+      
+      if (errors.length > 0) {
+        showAlert(`다음 필드는 필수입니다: ${errors.join(', ')}`, 'error');
         return;
       }
 
       let response;
       if (dialogMode === 'create') {
-        response = await promptService.createPrompt(currentFormData);
+        response = await promptService.createPrompt(formData);
       } else {
         // 수정 모드에서도 모든 필드를 전송 (백엔드에서 필터링)
-        response = await promptService.updatePrompt(currentPrompt.id, currentFormData);
+        response = await promptService.updatePrompt(currentPrompt.id, formData);
       }
       
       // 응답 확인
+      console.log('서버 응답:', response);
       if (response.success === false) {
         showAlert(response.message || '프롬프트 저장에 실패했습니다.', 'error');
         return;
@@ -231,9 +236,9 @@ const PromptsPage = () => {
       const errorMessage = error.response?.data?.detail || error.response?.data?.message || error.message;
       showAlert('프롬프트 저장에 실패했습니다: ' + errorMessage, 'error');
     }
-  };
+  }, [formData, dialogMode, currentPrompt, showAlert, loadPrompts]);
 
-  const handleActivate = async (promptId) => {
+  const handleActivate = useCallback(async (promptId) => {
     try {
       await promptService.activatePrompt(promptId);
       showAlert('프롬프트가 활성화되었습니다.', 'success');
@@ -241,9 +246,9 @@ const PromptsPage = () => {
     } catch (error) {
       showAlert('프롬프트 활성화에 실패했습니다: ' + error.message, 'error');
     }
-  };
+  }, [showAlert, loadPrompts]);
 
-  const handleDelete = async (promptId) => {
+  const handleDelete = useCallback(async (promptId) => {
     if (window.confirm('정말로 삭제하시겠습니까?')) {
       try {
         await promptService.deletePrompt(promptId);
@@ -253,9 +258,9 @@ const PromptsPage = () => {
         showAlert('삭제에 실패했습니다: ' + error.message, 'error');
       }
     }
-  };
+  }, [showAlert, loadPrompts]);
 
-  const handleDuplicate = async (promptId) => {
+  const handleDuplicate = useCallback(async (promptId) => {
     try {
       const originalPrompt = prompts.find(p => p.id === promptId);
       const newName = window.prompt('복제할 프롬프트 이름:', `${originalPrompt.name} (복사본)`);
@@ -267,9 +272,9 @@ const PromptsPage = () => {
     } catch (error) {
       showAlert('복제에 실패했습니다: ' + error.message, 'error');
     }
-  };
+  }, [prompts, showAlert, loadPrompts]);
 
-  const handlePreview = async (promptId) => {
+  const handlePreview = useCallback(async (promptId) => {
     try {
       const response = await promptService.previewPrompt(promptId, '코스맥스 신제품 출시', '코스맥스가 새로운 화장품을 출시했습니다.');
       setPreviewData(response);
@@ -277,11 +282,13 @@ const PromptsPage = () => {
     } catch (error) {
       showAlert('미리보기에 실패했습니다: ' + error.message, 'error');
     }
-  };
+  }, [showAlert]);
 
-  const TabPanel = ({ children, value, index }) => (
+  const TabPanel = React.memo(({ children, value, index }) => (
     <div hidden={value !== index}>{value === index && <Box sx={{ pt: 2 }}>{children}</Box>}</div>
-  );
+  ));
+
+  TabPanel.displayName = 'TabPanel';
 
   if (loading) {
     return (
@@ -402,7 +409,6 @@ const PromptsPage = () => {
       <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="lg" fullWidth>
         <DialogTitle>{dialogMode === 'create' ? '새 통합 프롬프트 생성' : '통합 프롬프트 수정'}</DialogTitle>
         <DialogContent 
-          ref={dialogContentRef} 
           sx={{ 
             position: 'relative',
             '&::-webkit-scrollbar': {
@@ -414,35 +420,30 @@ const PromptsPage = () => {
             '&::-webkit-scrollbar-thumb': {
               background: '#888',
               borderRadius: '4px'
-            },
-            scrollBehavior: 'auto',
-            overscrollBehavior: 'auto'
+            }
           }}>
-          <StableTextField 
+          <MemoizedTextField 
             label="프롬프트 이름" 
             value={formData.name} 
-            onChange={(value) => handleFormDataChange('name', value)} 
+            onChange={handleNameChange}
             required 
             margin="normal"
-            inputRef={(ref) => fieldRefs.current.name = ref}
           />
-          <StableTextField 
+          <MemoizedTextField 
             label="설명" 
             value={formData.description}
-            onChange={(value) => handleFormDataChange('description', value)} 
+            onChange={handleDescriptionChange}
             multiline 
             rows={2}
             margin="normal"
-            inputRef={(ref) => fieldRefs.current.description = ref}
           />
-          <StableTextField 
+          <MemoizedTextField 
             label="시스템 메시지" 
             value={formData.system_message}
-            onChange={(value) => handleFormDataChange('system_message', value)} 
+            onChange={handleSystemMessageChange}
             multiline 
             rows={2}
             margin="normal"
-            inputRef={(ref) => fieldRefs.current.system_message = ref}
           />
           
           <Divider sx={{ my: 3 }} />
@@ -457,55 +458,50 @@ const PromptsPage = () => {
           </Tabs>
 
           <TabPanel value={currentTab} index={0}>
-            <StableTextField 
+            <MemoizedTextField 
               label="역할 정의" 
               value={formData.role_definition}
-              onChange={(value) => handleFormDataChange('role_definition', value)} 
+              onChange={handleRoleDefinitionChange}
               required 
               multiline 
               rows={8}
-              inputRef={(ref) => fieldRefs.current.role_definition = ref}
             />
           </TabPanel>
           <TabPanel value={currentTab} index={1}>
-            <StableTextField 
+            <MemoizedTextField 
               label="상세 지침" 
               value={formData.detailed_instructions}
-              onChange={(value) => handleFormDataChange('detailed_instructions', value)} 
+              onChange={handleDetailedInstructionsChange}
               multiline 
               rows={8}
-              inputRef={(ref) => fieldRefs.current.detailed_instructions = ref}
             />
           </TabPanel>
           <TabPanel value={currentTab} index={2}>
-            <StableTextField 
+            <MemoizedTextField 
               label="Few-shot 예시" 
               value={formData.few_shot_examples}
-              onChange={(value) => handleFormDataChange('few_shot_examples', value)} 
+              onChange={handleFewShotExamplesChange}
               multiline 
               rows={8}
-              inputRef={(ref) => fieldRefs.current.few_shot_examples = ref}
             />
           </TabPanel>
           <TabPanel value={currentTab} index={3}>
-            <StableTextField 
+            <MemoizedTextField 
               label="Chain of Thought 과정" 
               value={formData.cot_process}
-              onChange={(value) => handleFormDataChange('cot_process', value)} 
+              onChange={handleCotProcessChange}
               multiline 
               rows={8}
-              inputRef={(ref) => fieldRefs.current.cot_process = ref}
             />
           </TabPanel>
           <TabPanel value={currentTab} index={4}>
-            <StableTextField 
+            <MemoizedTextField 
               label="기본 프롬프트" 
               value={formData.base_prompt}
-              onChange={(value) => handleFormDataChange('base_prompt', value)} 
+              onChange={handleBasePromptChange}
               required 
               multiline 
               rows={8}
-              inputRef={(ref) => fieldRefs.current.base_prompt = ref}
             />
           </TabPanel>
         </DialogContent>

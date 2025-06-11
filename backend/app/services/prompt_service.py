@@ -191,13 +191,15 @@ class PromptService:
             
             for i, prompt_data in enumerate(prompts_data):
                 if prompt_data.get("id") == prompt_id:
+                    logger.info(f"프롬프트 수정 요청: {request.dict()}")
+                    
                     # 기존 데이터 업데이트 - 빈 문자열도 허용
                     if request.name is not None:
-                        prompt_data["name"] = request.name
+                        prompt_data["name"] = request.name.strip() if request.name else ""
                     if request.description is not None:
                         prompt_data["description"] = request.description
                     if request.role_definition is not None:
-                        prompt_data["role_definition"] = request.role_definition
+                        prompt_data["role_definition"] = request.role_definition.strip() if request.role_definition else ""
                     if request.detailed_instructions is not None:
                         prompt_data["detailed_instructions"] = request.detailed_instructions
                     if request.few_shot_examples is not None:
@@ -205,7 +207,7 @@ class PromptService:
                     if request.cot_process is not None:
                         prompt_data["cot_process"] = request.cot_process
                     if request.base_prompt is not None:
-                        prompt_data["base_prompt"] = request.base_prompt
+                        prompt_data["base_prompt"] = request.base_prompt.strip() if request.base_prompt else ""
                     if request.system_message is not None:
                         prompt_data["system_message"] = request.system_message
                     if request.is_active is not None:
@@ -213,6 +215,8 @@ class PromptService:
                             for other_prompt in prompts_data:
                                 other_prompt["is_active"] = False
                         prompt_data["is_active"] = request.is_active
+                    
+                    logger.info(f"수정 후 프롬프트 데이터: {prompt_data}")
                     
                     # 필수 필드 검증 - 수정 후에 확인
                     if not prompt_data.get("name") or not prompt_data.get("name").strip():

@@ -635,28 +635,6 @@ def _add_batch_processing_methods():
 
 분석할 뉴스 기사들:
 {articles_text}
-
-응답 형식: 반드시 아래와 같이 JSON 배열로만 응답해주세요:
-[
-  {{
-    "Category": "자사언급기사",
-    "Confidence": 0.8,
-    "Keywords": ["키워드1", "키워드2"],
-    "Relation": 0.9,
-    "Reason": "분석 이유",
-    "Importance": "상",
-    "Recommendation_reason": "추천 이유"
-  }},
-  {{
-    "Category": "업계관련기사",
-    "Confidence": 0.7,
-    "Keywords": ["키워드3", "키워드4"],
-    "Relation": 0.6,
-    "Reason": "분석 이유",
-    "Importance": "중",
-    "Recommendation_reason": "추천 이유"
-  }}
-]
 """
     
     def _get_default_batch_prompt(self) -> str:
