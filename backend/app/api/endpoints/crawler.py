@@ -148,3 +148,19 @@ async def get_file_download_link(file_name: str):
         download_link=download_link,
         file_name=file_name
     )
+
+@router.post("/files/refresh")
+async def refresh_files():
+    """파일 목록 새로고침 (캐시 무효화)"""
+    try:
+        file_manager.refresh_files()
+        return {
+            "success": True,
+            "message": "파일 목록이 새로고침되었습니다."
+        }
+    except Exception as e:
+        logger.error(f"파일 새로고침 오류: {str(e)}")
+        return {
+            "success": False,
+            "message": f"파일 새로고침 중 오류가 발생했습니다: {str(e)}"
+        }

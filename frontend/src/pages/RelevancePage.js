@@ -165,12 +165,32 @@ const RelevancePage = () => {
   }, [location.state]);
   
   // 파일 목록 로드
-  const loadFiles = async () => {
+  const loadFiles = async (showRefreshMessage = false) => {
     try {
+      // 파일 목록 새로고침 요청 (캐시 무효화)
+      if (showRefreshMessage) {
+        await crawlerService.refreshFiles();
+      }
+      
       const fileList = await crawlerService.getFiles();
-      // 평가되지 않은 파일만 필터링
-      const unevaluatedFiles = fileList.filter(file => !file.has_evaluation && !file.is_evaluated);
-      setFiles(unevaluatedFiles);
+      console.log('📂 전체 파일 목록:', fileList);
+      
+      // 크롤링 디렉토리에서 온 파일만 필터링 (더 정확한 필터링)
+      const crawlingFiles = fileList.filter(file => 
+        file.directory_type === 'crawling' || 
+        (file.file_type === 'crawling' && !file.has_evaluation)
+      );
+      
+      console.log('📁 크롤링 파일 목록:', crawlingFiles);
+      setFiles(crawlingFiles);
+      
+      if (showRefreshMessage) {
+        setAlert({
+          open: true,
+          type: 'success',
+          message: `파일 목록이 새로고침되었습니다. ${crawlingFiles.length}개의 파일을 찾았습니다.`,
+        });
+      }
     } catch (error) {
       console.error('파일 목록 로드 중 오류:', error);
       setAlert({
@@ -415,7 +435,7 @@ const RelevancePage = () => {
               <Button
                 variant="outlined"
                 color="primary"
-                onClick={loadFiles}
+                onClick={() => loadFiles(true)}
                 startIcon={<UploadFileIcon />}
               >
                 파일 새로고침

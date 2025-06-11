@@ -72,6 +72,17 @@ const crawlerService = {
       console.error('API 키 상태 확인 중 오류:', error);
       throw error;
     }
+  },
+
+  // 파일 목록 새로고침
+  refreshFiles: async () => {
+    try {
+      const response = await apiClient.post('/api/crawler/files/refresh');
+      return response.data;
+    } catch (error) {
+      console.error('파일 새로고침 중 오류:', error);
+      throw error;
+    }
   }
 };
 

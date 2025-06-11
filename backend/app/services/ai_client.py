@@ -57,11 +57,11 @@ class OpenAIClient:
             actual_model = self.MODEL_MAPPING.get(model, model)
             logger.info(f"OpenAI 분석 시작 - 요청 모델: {model}, 실제 모델: {actual_model}")
             
-            # 배치 크기에 따른 동적 max_tokens 설정 (증가)
+            # 배치 크기에 따른 동적 max_tokens 설정 (더 크게 증가)
             if batch_size > 1:
-                default_max_tokens = min(batch_size * 1500 + 3000, 40000)  # 배치 처리용 (증가)
+                default_max_tokens = min(batch_size * 2500 + 5000, 60000)  # 배치 처리용 (더 크게 증가)
             else:
-                default_max_tokens = 3000  # 단일 처리용 (증가)
+                default_max_tokens = 5000  # 단일 처리용 (더 크게 증가)
             
             # LLM 호출 로그 기록
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -162,7 +162,7 @@ class AnthropicClient:
             
             response = self.client.messages.create(
                 model=actual_model,
-                max_tokens=kwargs.get('max_tokens', 500),
+                max_tokens=kwargs.get('max_tokens', 3000),
                 temperature=kwargs.get('temperature', 0.1),
                 messages=[{"role": "user", "content": prompt}]
             )

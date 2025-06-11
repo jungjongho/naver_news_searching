@@ -130,7 +130,17 @@ class FileManager:
         else:
             file_size_str = f"{file_size / 1048576:.1f} MB"
         
-        has_evaluation = '_analyzed' in filename
+        # 디렉토리 기반으로 평가 여부 판단 (더 정확함)
+        # crawling 디렉토리의 파일은 평가되지 않은 원본 파일
+        # relevance 디렉토리의 파일은 이미 평가된 결과 파일
+        if dir_type == "crawling":
+            has_evaluation = False  # 크롤링 디렉토리 파일은 아직 평가되지 않음
+        elif dir_type == "relevance":
+            has_evaluation = True   # 관련성 디렉토리 파일은 이미 평가됨
+        else:
+            # legacy 파일들은 파일명으로 판단
+            has_evaluation = '_analyzed' in filename
+        
         file_type = self._determine_file_type(dir_type, filename)
         
         return {
@@ -220,6 +230,11 @@ class FileManager:
         self._file_cache.clear()
         self._directory_cache.clear()
         logger.info("모든 파일 캐시가 삭제되었습니다")
+    
+    def refresh_files(self):
+        """파일 목록 새로고침 (캐시 무효화)"""
+        self.clear_all_caches()
+        logger.info("파일 목록이 새로고침되었습니다")
 
 
 # 전역 인스턴스
