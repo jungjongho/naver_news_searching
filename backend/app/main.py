@@ -84,4 +84,11 @@ async def api_key_status():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "app.main:app", 
+        host="0.0.0.0", 
+        port=8000, 
+        reload=True,
+        timeout_keep_alive=300,  # Keep-alive 연결 타임아웃 5분
+        timeout_graceful_shutdown=30  # 종료 대기 시간 30초
+    )

@@ -39,7 +39,7 @@ class OpenAIClient:
     
     def __init__(self, api_key: str):
         try:
-            self.client = OpenAI(api_key=api_key, timeout=30.0)
+            self.client = OpenAI(api_key=api_key, timeout=60.0)  # 1분
             # API 키 유효성 검증
             logger.info("OpenAI API 키 유효성 검증 중...")
             models = self.client.models.list()
@@ -57,11 +57,11 @@ class OpenAIClient:
             actual_model = self.MODEL_MAPPING.get(model, model)
             logger.info(f"OpenAI 분석 시작 - 요청 모델: {model}, 실제 모델: {actual_model}")
             
-            # 배치 크기에 따른 동적 max_tokens 설정 (더 크게 증가)
+            # 배치 크기에 따른 동적 max_tokens 설정 (원래대로 복구)
             if batch_size > 1:
-                default_max_tokens = min(batch_size * 2500 + 5000, 60000)  # 배치 처리용 (더 크게 증가)
+                default_max_tokens = min(batch_size * 2000 + 3000, 40000)  # 배치 처리용
             else:
-                default_max_tokens = 5000  # 단일 처리용 (더 크게 증가)
+                default_max_tokens = 3000  # 단일 처리용
             
             # LLM 호출 로그 기록
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -162,7 +162,7 @@ class AnthropicClient:
             
             response = self.client.messages.create(
                 model=actual_model,
-                max_tokens=kwargs.get('max_tokens', 3000),
+                max_tokens=kwargs.get('max_tokens', 500),
                 temperature=kwargs.get('temperature', 0.1),
                 messages=[{"role": "user", "content": prompt}]
             )

@@ -6,7 +6,7 @@ const apiClient = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 300000, // 5분 (크롤링은 시간이 오래 걸릴 수 있음)
+  timeout: 1800000, // 30분
 });
 
 // 요청 인터셉터 추가

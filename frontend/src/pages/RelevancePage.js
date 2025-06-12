@@ -281,7 +281,7 @@ const RelevancePage = () => {
       });
       
       // 4. 약간의 지연으로 React 상태가 완전히 업데이트되도록 보장
-      await new Promise(resolve => setTimeout(resolve, 1000)); // 1초로 증가
+      await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5초로 증가
       
       // 5. 프롬프트 ID 포함한 요청 데이터
       const requestData = {

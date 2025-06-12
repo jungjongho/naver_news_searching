@@ -30,6 +30,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             "session_id": session_id,
             "message": "WebSocket 연결이 성공적으로 설정되었습니다."
         }, session_id)
+        logger.info(f"WebSocket 연결 완료 메시지 전송: session_id={session_id}")
         
         while True:
             # 클라이언트로부터 메시지를 대기 (연결 유지용)
@@ -52,5 +53,5 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         manager.disconnect(websocket, session_id)
         logger.info(f"WebSocket 연결이 클라이언트에 의해 종료됨: session_id={session_id}")
     except Exception as e:
-        logger.error(f"WebSocket 오류: session_id={session_id}, error={str(e)}")
+        logger.error(f"WebSocket 오류: session_id={session_id}, error={str(e)}, type={type(e).__name__}")
         manager.disconnect(websocket, session_id)

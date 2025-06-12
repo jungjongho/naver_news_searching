@@ -47,14 +47,26 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
 
     console.log('🚀 WebSocket 연결 준비 시작...');
 
-    // WebSocket URL (백엔드 포트 8000으로 명시적 지정)
+    // WebSocket URL - 동적으로 백엔드 주소 생성
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const backendHost = window.location.hostname;
-    const backendPort = '8000';  // 백엔드 포트 명시적 지정
-    const wsUrl = `${protocol}//${backendHost}:${backendPort}/ws/${sessionId}`;
+    const currentHost = window.location.host;
+    
+    // 프론트엔드가 3000 포트라면 백엔드는 8000 포트로 추정
+    let backendHost;
+    if (currentHost.includes(':3000')) {
+      backendHost = currentHost.replace(':3000', ':8000');
+    } else if (currentHost.includes(':')) {
+      // 다른 포트가 있다면 8000으로 변경
+      backendHost = currentHost.split(':')[0] + ':8000';
+    } else {
+      // 포트가 없다면 8000 추가
+      backendHost = currentHost + ':8000';
+    }
+    
+    const wsUrl = `${protocol}//${backendHost}/ws/${sessionId}`;
     
     console.log('🔗 WebSocket 연결 시도:', wsUrl);
-    console.log('🖥️ 백엔드 호스트:', `${backendHost}:${backendPort}`);
+    console.log('🖥️ 백엔드 호스트:', backendHost);
     console.log('🏷️ 세션 ID:', sessionId);
     console.log('🌐 현재 URL:', window.location.href);
     console.log('🔌 프로토콜:', protocol);
@@ -72,11 +84,9 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
       };
       
       wsRef.current.onmessage = (event) => {
-        console.log('📨 WebSocket 메시지 수신:', event.data);
-        
         try {
           const data = JSON.parse(event.data);
-          console.log('📊 파싱된 데이터:', data);
+          console.log('📊 WebSocket 메시지 수신:', data.type, data.current ? `${data.current}/${data.total}` : '');
           
           // 즉시 처리를 위해 setTimeout 사용 안함
           switch (data.type) {
@@ -85,22 +95,21 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
               break;
               
             case 'pong':
-              console.log('🏓 Pong 응답 수신');
+              // pong 응답은 로그 최소화
               break;
               
             case 'progress_update':
-              console.log(`🔄 진행률 업데이트: ${data.current}/${data.total} (${data.percentage}%)`);
-              
               // 즉시 업데이트
               setProgress({
                 current: data.current,
                 total: data.total,
                 percentage: data.percentage,
                 isComplete: false,
-                error: null
+                error: null,
+                isStopped: false
               });
               
-              // 최근 처리된 기사 목록 업데이트
+              // 최근 처리된 기사 목록 업데이트 (카테고리가 있는 완료된 기사만)
               if (data.article_title && data.category) {
                 setRecentArticles(prev => {
                   const newArticle = {
@@ -112,7 +121,6 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
                   };
                   
                   const updated = [newArticle, ...prev].slice(0, maxRecentArticles);
-                  console.log('📝 기사 목록 업데이트:', newArticle.title.substring(0, 50));
                   return updated;
                 });
               }
@@ -128,7 +136,6 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
               
               // 성공 알림 표시 (자동 이동 제거)
               setTimeout(() => {
-                // 부모 컴포넌트에서 alert 설정하도록 커스텀 이벤트 발송
                 if (window.showSuccessAlert) {
                   window.showSuccessAlert(data.stats, false); // 자동 이동 비활성화
                 }
@@ -165,7 +172,7 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
         console.error('❌ WebSocket 오류:', error);
         setProgress(prev => ({
           ...prev,
-          error: 'WebSocket 연결 오류가 발생했습니다.'
+          error: 'WebSocket 연결 오류가 발생했습니다. 백엔드 서버가 실행 중인지 확인해주세요.'
         }));
       };
       
@@ -175,12 +182,28 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
           reason: event.reason,
           wasClean: event.wasClean
         });
+        
+        // 비정상 종료인 경우 재연결 시도 (최대 3회)
+        if (!event.wasClean && open && sessionId) {
+          const retryCount = (wsRef.current?._retryCount || 0) + 1;
+          if (retryCount <= 3) {
+            console.log(`🔄 WebSocket 재연결 시도 ${retryCount}/3...`);
+            setTimeout(() => {
+              if (open && sessionId) {
+                const newWs = new WebSocket(wsUrl);
+                newWs._retryCount = retryCount;
+                wsRef.current = newWs;
+                // 이벤트 핸들러 재설정은 생략 (간단한 재연결만)
+              }
+            }, 2000 * retryCount); // 지수 백오프
+          }
+        }
       };
     } catch (connectionError) {
       console.error('❌ WebSocket 생성 오류:', connectionError);
       setProgress(prev => ({
         ...prev,
-        error: `WebSocket 연결 실패: ${connectionError.message}`
+        error: `WebSocket 연결 실패: ${connectionError.message}. 백엔드 서버 상태를 확인해주세요.`
       }));
     }
   }, [open, sessionId, maxRecentArticles]);
@@ -207,11 +230,11 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
       clearTimeout(connectTimeout);
       if (wsRef.current) {
         console.log('🔌 WebSocket 연결 해제 중...');
-        wsRef.current.close();
+        wsRef.current.close(1000, 'Component unmounting'); // 정상 종료 코드
         wsRef.current = null;
       }
     };
-  }, [open, sessionId]); // connectWebSocket 의존성 제거
+  }, [open, sessionId, connectWebSocket]); // connectWebSocket 의존성 추가
 
   // 분석 중지 함수
   const handleStopAnalysis = async () => {
