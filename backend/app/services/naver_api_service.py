@@ -95,7 +95,7 @@ class NaverApiService:
         domain = self._extract_domain_from_url(url)
         return self.domain_to_source.get(domain) if domain else None
     
-    def _process_news_item(self, item: Dict[str, Any], keyword: str, start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> Optional[Dict[str, Any]]:
+    def _process_news_item(self, item: Dict[str, Any], keyword: str, news_id: str = None, start_date: datetime.datetime = None, end_date: datetime.datetime = None) -> Optional[Dict[str, Any]]:
         """뉴스 아이템 처리"""
         try:
             pub_date = datetime.datetime.strptime(item['pubDate'], "%a, %d %b %Y %H:%M:%S +0900")
@@ -112,6 +112,7 @@ class NaverApiService:
             source_name = self._get_source_from_url(original_link)
             
             return {
+                "news_id": news_id,
                 "title": title,
                 "link": item['link'],
                 "pubDate": pub_date.strftime("%Y-%m-%d %H:%M:%S"),
@@ -173,8 +174,11 @@ class NaverApiService:
                 if not items:
                     break
                 
-                for item in items:
-                    processed_item = self._process_news_item(item, keyword, start_date_obj, end_date_obj)
+                for idx, item in enumerate(items):
+                    # news_id 생성: 전체 인덱스 기준
+                    news_id = f"news_{len(all_news) + 1}"
+                    
+                    processed_item = self._process_news_item(item, keyword, news_id, start_date_obj, end_date_obj)
                     if processed_item:
                         all_news.append(processed_item)
                     elif processed_item is None and 'pubDate' in item:
@@ -208,6 +212,10 @@ class NaverApiService:
         
         if all_news_items:
             all_news_items = deduplicate_by_url(all_news_items)
+            
+            # 중복 제거 후 news_id 재생성
+            for i, item in enumerate(all_news_items, 1):
+                item["news_id"] = f"news_{i}"
         
         logger.info(f"중복 제거 후 총 뉴스 개수: {len(all_news_items)}")
         return all_news_items, errors

@@ -182,12 +182,12 @@ class NewsAnalysisService:
                     session_id, total_items, current_item_index
                 )
                 
-                # 4. 결과 병합 및 통계 업데이트
+                # 4. 결과 병합 및 통계 업데이트 - news_id 기준 조인
                 for i, (news_item, analysis_result) in enumerate(zip(batch, batch_results)):
                     current_item_index += 1
                     
-                    # 결과 병합
-                    analyzed_item = {**news_item, **analysis_result}
+                    # 결과 병합 - news_id 기준으로 조인
+                    analyzed_item = self._join_data_by_news_id(news_item, analysis_result)
                     analyzed_data.append(analyzed_item)
                     
                     # 통계 업데이트
@@ -220,8 +220,9 @@ class NewsAnalysisService:
                 # 배치 실패 시 기본값으로 처리
                 for news_item in batch:
                     current_item_index += 1
-                    default_result = data_processor._get_default_analysis_result()
-                    analyzed_item = {**news_item, **default_result}
+                    news_id = news_item.get("news_id", f"news_{current_item_index}")
+                    default_result = data_processor._get_default_analysis_result(news_id)
+                    analyzed_item = self._join_data_by_news_id(news_item, default_result)
                     analyzed_data.append(analyzed_item)
                     self._update_stats(stats, default_result)
                     stats["processing_errors"] += 1
@@ -282,7 +283,7 @@ class NewsAnalysisService:
                 )
             
             # 응답 파싱
-            batch_results = self._parse_batch_response(response_text, len(batch))
+            batch_results = self._parse_batch_response(response_text, len(batch), batch)
             
             logger.info(f"배치 {batch_idx} 파싱 완료: {len(batch_results)}개 결과")
             
@@ -301,7 +302,12 @@ class NewsAnalysisService:
                     force_send=True
                 )
             
-            return [data_processor._get_default_analysis_result() for _ in batch]
+            # 각 배치 아이템에 대해 실제 news_id 사용
+            result = []
+            for news_item in batch:
+                news_id = news_item.get("news_id", "unknown")
+                result.append(data_processor._get_default_analysis_result(news_id))
+            return result
     
     def _prepare_batch_prompt(self, batch: List[Dict[str, Any]], compiled_prompt: Optional[str]) -> str:
         """배치 분석용 프롬프트 생성"""
@@ -318,12 +324,13 @@ class NewsAnalysisService:
 """
         
         for i, news_item in enumerate(batch, 1):
-            title, content = data_processor.extract_text_content(news_item)
+            news_id, title, content = data_processor.extract_text_content(news_item)
             title_truncated = title[:300] if title else ""
             content_truncated = content[:1500] if content else ""
             
             batch_prompt += f"""
-{i}. 기사 제목: {title_truncated}
+{i}. News ID: {news_id}
+   기사 제목: {title_truncated}
    기사 내용: {content_truncated}
 """
         
@@ -338,7 +345,7 @@ class NewsAnalysisService:
         
         return batch_prompt
     
-    def _parse_batch_response(self, response_text: str, expected_count: int) -> List[Dict[str, Any]]:
+    def _parse_batch_response(self, response_text: str, expected_count: int, batch: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """배치 응답 파싱"""
         
         try:
@@ -357,21 +364,32 @@ class NewsAnalysisService:
                     
                     if isinstance(parsed_obj, dict):
                         validated_item = data_processor.safe_json_parse(json_str)
+                        # 배치에서 대응하는 news_id 추가
+                        if "news_id" not in validated_item and batch and i < len(batch):
+                            validated_item["news_id"] = batch[i].get("news_id", f"news_{i+1}")
+                        elif "news_id" not in validated_item:
+                            validated_item["news_id"] = f"news_{i+1}"
                         validated_results.append(validated_item)
                     else:
-                        validated_results.append(data_processor._get_default_analysis_result())
+                        news_id = batch[i].get("news_id", f"news_{i+1}") if batch and i < len(batch) else f"news_{i+1}"
+                        validated_results.append(data_processor._get_default_analysis_result(news_id))
                         
                 except json.JSONDecodeError as e:
                     logger.warning(f"JSON 객체 {i+1} 파싱 실패: {e}")
-                    validated_results.append(data_processor._get_default_analysis_result())
+                    news_id = batch[i].get("news_id", f"news_{i+1}") if batch and i < len(batch) else f"news_{i+1}"
+                    validated_results.append(data_processor._get_default_analysis_result(news_id))
             
-            return self._adjust_batch_result_count(validated_results, expected_count)
+            return self._adjust_batch_result_count(validated_results, expected_count, batch)
             
         except Exception as e:
             logger.error(f"배치 응답 파싱 실패: {e}")
-            return [data_processor._get_default_analysis_result() for _ in range(expected_count)]
+            # 배치 정보를 사용하여 기본값 생성
+            if batch:
+                return [data_processor._get_default_analysis_result(item.get("news_id", f"news_{i+1}")) for i, item in enumerate(batch[:expected_count])]
+            else:
+                return [data_processor._get_default_analysis_result(f"news_{i+1}") for i in range(expected_count)]
     
-    def _adjust_batch_result_count(self, results: List[Dict[str, Any]], expected_count: int) -> List[Dict[str, Any]]:
+    def _adjust_batch_result_count(self, results: List[Dict[str, Any]], expected_count: int, batch: List[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """결과 개수 조정"""
         
         if len(results) == expected_count:
@@ -382,7 +400,12 @@ class NewsAnalysisService:
         else:
             logger.warning(f"배치 결과 부족: {len(results)} < {expected_count}")
             while len(results) < expected_count:
-                results.append(data_processor._get_default_analysis_result())
+                # 배치 정보가 있으면 해당 news_id 사용
+                if batch and len(results) < len(batch):
+                    news_id = batch[len(results)].get("news_id", f"news_{len(results) + 1}")
+                else:
+                    news_id = f"news_{len(results) + 1}"
+                results.append(data_processor._get_default_analysis_result(news_id))
             return results
     
     def _update_stats(self, stats: Dict[str, Any], analysis_result: Dict[str, Any]):
@@ -483,8 +506,8 @@ class NewsAnalysisService:
                 return analyzed_data, stats
             
             try:
-                # 제목과 내용 추출
-                title, content = data_processor.extract_text_content(news_item)
+                # news_id, 제목과 내용 추출
+                news_id, title, content = data_processor.extract_text_content(news_item)
                 
                 # 진행률 로깅 (간격 조절)
                 current_time = time.time()
@@ -512,14 +535,14 @@ class NewsAnalysisService:
                 
                 # 분석 수행
                 if not title and not content:
-                    analysis_result = data_processor._get_default_analysis_result()
+                    analysis_result = data_processor._get_default_analysis_result(news_id)
                 else:
                     analysis_result = self._analyze_single_item_optimized(
-                        title, content, ai_client, model, compiled_prompt
+                        news_id, title, content, ai_client, model, compiled_prompt
                     )
                 
-                # 결과 병합 (메모리 효율적)
-                analyzed_item = {**news_item, **analysis_result}
+                # 결과 병합 - news_id 기준으로 조인
+                analyzed_item = self._join_data_by_news_id(news_item, analysis_result)
                 analyzed_data.append(analyzed_item)
                 
                 # 통계 업데이트
@@ -585,6 +608,7 @@ class NewsAnalysisService:
     
     def _analyze_single_item_optimized(
         self,
+        news_id: str,
         title: str,
         content: str,
         ai_client,
@@ -593,10 +617,10 @@ class NewsAnalysisService:
     ) -> Dict[str, Any]:
         """최적화된 단일 뉴스 항목 분석"""
         try:
-            prompt = self._prepare_prompt_optimized(title, content, compiled_prompt)
+            prompt = self._prepare_prompt_optimized(news_id, title, content, compiled_prompt)
             
             # 디버깅을 위한 로깅
-            logger.info(f"단일 분석 시작: {title[:50]}...")
+            logger.info(f"단일 분석 시작: {news_id} - {title[:50]}...")
             if self.verbose_logging:
                 logger.debug(f"사용 프롬프트: {prompt[:200]}...")
             
@@ -610,20 +634,24 @@ class NewsAnalysisService:
             # 최적화된 JSON 파싱 사용
             result = data_processor.safe_json_parse(response_text)
             
+            # news_id 추가 (결과에 포함되지 않은 경우)
+            if "news_id" not in result:
+                result["news_id"] = news_id
+            
             # 결과 로깅 (동적 필드)
             first_field = next(iter(result.keys()), "unknown")
-            logger.info(f"파싱 결과 - 첫 번째 필드: {first_field}, 값: {result.get(first_field, 'N/A')}")
+            logger.info(f"파싱 결과 - news_id: {news_id}, 첫 번째 필드: {first_field}, 값: {result.get(first_field, 'N/A')}")
             
             return result
             
         except Exception as e:
-            logger.error(f"단일 항목 분석 실패 - 제목: {title[:50]}..., 오류: {str(e)}")
+            logger.error(f"단일 항목 분석 실패 - news_id: {news_id}, 제목: {title[:50]}..., 오류: {str(e)}")
             if self.verbose_logging:
                 import traceback
                 logger.debug(f"전체 오류 스택: {traceback.format_exc()}")
-            return data_processor._get_default_analysis_result()
+            return data_processor._get_default_analysis_result(news_id)
     
-    def _prepare_prompt_optimized(self, title: str, content: str, 
+    def _prepare_prompt_optimized(self, news_id: str, title: str, content: str, 
                                  compiled_prompt: Optional[str] = None) -> str:
         """최적화된 프롬프트 준비 - 템플릿 필수"""
         if not compiled_prompt:
@@ -633,8 +661,9 @@ class NewsAnalysisService:
         title_truncated = title[:300] if title else ""
         content_truncated = content[:1500] if content else ""
         
-        if '{title}' in compiled_prompt and '{content}' in compiled_prompt:
+        if '{news_id}' in compiled_prompt and '{title}' in compiled_prompt and '{content}' in compiled_prompt:
             return compiled_prompt.format(
+                news_id=news_id,
                 title=title_truncated, 
                 content=content_truncated
             )
@@ -642,6 +671,7 @@ class NewsAnalysisService:
             return f"""{compiled_prompt}
 
 분석할 뉴스 기사:
+News ID: {news_id}
 제목: {title_truncated}
 내용: {content_truncated}"""
     
@@ -652,9 +682,12 @@ class NewsAnalysisService:
         logger.error(f"뉴스 항목 {current_index} 분석 실패: {str(error)}")
         stats["processing_errors"] += 1
         
+        # news_id 추출
+        news_id = news_item.get("news_id", f"news_{current_index}")
+        
         # 기본값으로 결과 생성
-        default_result = data_processor._get_default_analysis_result()
-        analyzed_item = {**news_item, **default_result}
+        default_result = data_processor._get_default_analysis_result(news_id)
+        analyzed_item = self._join_data_by_news_id(news_item, default_result)
         analyzed_data.append(analyzed_item)
         
         # 오류 통계 업데이트
@@ -696,6 +729,55 @@ class NewsAnalysisService:
         print(f"처리 속도: {processing_rate}기사/분")
         print(f"배치 크기: {stats.get('batch_size', 1)}개")
         print("=" * 30)
+    
+    def _join_data_by_news_id(self, news_item: Dict[str, Any], analysis_result: Dict[str, Any]) -> Dict[str, Any]:
+        """원본 데이터와 분석 결과를 news_id 기준으로 조인"""
+        try:
+            # 원본 데이터의 news_id 추출
+            original_news_id = news_item.get("news_id")
+            analysis_news_id = analysis_result.get("news_id")
+            
+            # news_id 일치 확인 및 로깅
+            if original_news_id and analysis_news_id:
+                if original_news_id != analysis_news_id:
+                    logger.warning(
+                        f"news_id 불일치 감지! 원본: {original_news_id}, 분석: {analysis_news_id} - 원본 데이터의 news_id 사용"
+                    )
+                    # 원본 데이터의 news_id를 우선하여 사용
+                    analysis_result = analysis_result.copy()
+                    analysis_result["news_id"] = original_news_id
+                else:
+                    # news_id 일치 - 정상 상황
+                    logger.debug(f"news_id 일치 확인: {original_news_id}")
+            elif original_news_id and not analysis_news_id:
+                # 분석 결과에 news_id가 없으면 원본 데이터의 news_id 사용
+                logger.debug(f"분석 결과에 news_id 없음. 원본 news_id 사용: {original_news_id}")
+                analysis_result = analysis_result.copy()
+                analysis_result["news_id"] = original_news_id
+            elif not original_news_id and analysis_news_id:
+                # 원본 데이터에 news_id가 없으면 분석 결과의 news_id 사용
+                logger.warning(f"원본 데이터에 news_id 없음. 분석 결과 news_id 사용: {analysis_news_id}")
+                news_item = news_item.copy()
+                news_item["news_id"] = analysis_news_id
+            else:
+                # 둘 다 news_id가 없는 경우
+                logger.error("원본 데이터와 분석 결과 모두에 news_id가 없습니다.")
+            
+            # 데이터 병합 (분석 결과가 원본 데이터를 덮어씁)
+            joined_item = {**news_item, **analysis_result}
+            
+            # news_id 일치성 최종 확인
+            final_news_id = joined_item.get("news_id")
+            if not final_news_id:
+                logger.error("최종 결과에 news_id가 없습니다. 기본값 사용")
+                joined_item["news_id"] = "unknown"
+            
+            return joined_item
+            
+        except Exception as e:
+            logger.error(f"news_id 기준 조인 실패: {str(e)} - 기본 병합 사용")
+            # 오류 발생 시 기본 병합 사용
+            return {**news_item, **analysis_result}
 
 
 # 전역 인스턴스

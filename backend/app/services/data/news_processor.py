@@ -55,6 +55,7 @@ class NewsProcessor:
     def process_news_item(
         item: Dict[str, Any], 
         keyword: str,
+        news_id: str = None,
         start_date: Optional[datetime.datetime] = None,
         end_date: Optional[datetime.datetime] = None
     ) -> Optional[Dict[str, Any]]:
@@ -78,6 +79,7 @@ class NewsProcessor:
             source_name = domain_mapper.get_source_from_url(original_link)
             
             return {
+                "news_id": news_id,
                 "title": title,
                 "link": item['link'],
                 "pubDate": NewsProcessor.format_date_for_output(pub_date),
@@ -101,9 +103,12 @@ class NewsProcessor:
         """뉴스 아이템 목록 처리"""
         processed_items = []
         
-        for item in items:
+        for i, item in enumerate(items, 1):
+            # news_id 생성 (news_1, news_2, news_3...)
+            news_id = f"news_{i}"
+            
             processed_item = NewsProcessor.process_news_item(
-                item, keyword, start_date, end_date
+                item, keyword, news_id, start_date, end_date
             )
             if processed_item:
                 processed_items.append(processed_item)

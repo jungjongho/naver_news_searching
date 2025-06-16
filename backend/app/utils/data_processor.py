@@ -82,12 +82,17 @@ class DataProcessor:
         return normalized_result
     
     @staticmethod
-    def _get_default_analysis_result() -> Dict[str, Any]:
+    def _get_default_analysis_result(news_id: str = None) -> Dict[str, Any]:
         """기본 분석 결과 반환 (동적 필드)"""
-        return {
+        result = {
             "analysis_status": "failed",
             "analysis_note": "분석 실패 또는 기본값이 사용됨"
         }
+        
+        if news_id:
+            result["news_id"] = news_id
+            
+        return result
     
     @staticmethod
     def batch_process_news_items(news_items: List[Dict[str, Any]], 
@@ -100,8 +105,11 @@ class DataProcessor:
         return batches
     
     @staticmethod
-    def extract_text_content(news_item: Dict[str, Any]) -> tuple[str, str]:
-        """뉴스 아이템에서 제목과 내용 추출 (다양한 키 지원)"""
+    def extract_text_content(news_item: Dict[str, Any]) -> tuple[str, str, str]:
+        """뉴스 아이템에서 news_id, 제목과 내용 추출 (다양한 키 지원)"""
+        # news_id 추출
+        news_id = news_item.get("news_id", "")
+        
         # 제목 추출
         title = (
             news_item.get("title") or 
@@ -117,7 +125,7 @@ class DataProcessor:
             ""
         )
         
-        return title.strip(), content.strip()
+        return news_id.strip(), title.strip(), content.strip()
     
     @staticmethod
     def format_keywords_for_filename(keywords: List[str], max_length: int = 100) -> str:
