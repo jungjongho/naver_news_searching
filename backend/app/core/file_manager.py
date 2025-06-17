@@ -17,8 +17,7 @@ class FileManager:
     """통합 파일 관리 클래스 - 싱글톤 패턴"""
     
     _instance = None
-    _file_cache = {}
-    _directory_cache = {}
+    _file_cache = {}  # 파일 경로 캐시만 유지
     
     def __new__(cls):
         if cls._instance is None:
@@ -64,15 +63,7 @@ class FileManager:
         return None
     
     def get_excel_files_optimized(self, directory: str = None) -> List[Dict[str, Any]]:
-        """최적화된 Excel 파일 목록 조회"""
-        cache_key = directory or "all_directories"
-        
-        # 캐시 확인 (5분간 유효)
-        if cache_key in self._directory_cache:
-            cache_time, cached_files = self._directory_cache[cache_key]
-            if (datetime.now() - cache_time).seconds < 300:  # 5분
-                return cached_files
-        
+        """Excel 파일 목록 조회 - 실시간 업데이트"""
         file_list = []
         
         if directory is None:
@@ -107,9 +98,6 @@ class FileManager:
             
             # 수정 날짜 기준 내림차순 정렬
             file_list.sort(key=lambda x: x['modified'], reverse=True)
-            
-            # 캐시에 저장
-            self._directory_cache[cache_key] = (datetime.now(), file_list)
             
         except Exception as e:
             logger.error(f"파일 목록 조회 오류: {str(e)}")
@@ -221,18 +209,18 @@ class FileManager:
             return None
     
     def _invalidate_caches(self):
-        """캐시 무효화"""
-        self._directory_cache.clear()
-        # 파일 캐시는 유지 (파일 삭제가 아닌 추가이므로)
+        """캐시 무효화 - 파일 경로 캐시만 정리"""
+        # 디렉토리 캐시는 제거됨
+        # 파일 경로 캐시만 유지 (find_file_path용)
+        pass  # 더 이상 디렉토리 캐시가 없으므로
     
     def clear_all_caches(self):
         """모든 캐시 삭제"""
         self._file_cache.clear()
-        self._directory_cache.clear()
-        logger.info("모든 파일 캐시가 삭제되었습니다")
+        logger.info("파일 경로 캐시가 삭제되었습니다")
     
     def refresh_files(self):
-        """파일 목록 새로고침 (캐시 무효화)"""
+        """파일 목록 새로고침 (파일 경로 캐시 무효화)"""
         self.clear_all_caches()
         logger.info("파일 목록이 새로고침되었습니다")
 

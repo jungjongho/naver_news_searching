@@ -41,8 +41,8 @@ import { storage } from '../utils/helpers';
 
 // AI 모델 옵션
 const AI_MODELS = [
-  { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano (추천)', description: 'OpenAI 최신 고속 저비용 모델 (2025년 4월 출시)' },
-  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', description: '뛰어난 성능과 낮은 비용을 제공하는 경량화 모델' },
+  { value: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', description: 'OpenAI 최신 고속 저비용 모델 (2025년 4월 출시)' },
+  { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini(추천)', description: '뛰어난 성능과 낮은 비용을 제공하는 경량화 모델' },
   { value: 'gpt-4.1', label: 'GPT-4.1', description: '코딩과 지시 이행에 특화된 최신 대화형 모델' },
   { value: 'gpt-4o-mini', label: 'GPT-4o Mini', description: '기존 경량화 모델, 빠른 속도와 저렴한 비용' },
   { value: 'gpt-3.5-turbo', label: 'GPT-3.5 Turbo', description: '빠르고 비용 효율적인 모델' },
@@ -59,7 +59,7 @@ const RelevancePage = () => {
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState('');
   const [apiKey, setApiKey] = useState('');
-  const [model, setModel] = useState('gpt-4.1-nano');
+  const [model, setModel] = useState('gpt-4.1-mini');
   const [prompts, setPrompts] = useState([]);
   const [selectedPrompt, setSelectedPrompt] = useState('');
   const [loading, setLoading] = useState(false);

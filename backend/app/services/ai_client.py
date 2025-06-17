@@ -59,7 +59,7 @@ class OpenAIClient:
             
             # 배치 크기에 따른 동적 max_tokens 설정 (원래대로 복구)
             if batch_size > 1:
-                default_max_tokens = min(batch_size * 2000 + 5000, 31999)  # 배치 처리용
+                default_max_tokens = min(batch_size * 5000 + 5000, 59999)  # 배치 처리용
             else:
                 default_max_tokens = 5000  # 단일 처리용
             
