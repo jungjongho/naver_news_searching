@@ -11,3 +11,4 @@ scikit-learn==1.3.2
 nltk==3.8.1
 openai>=1.30.0  # GPT-4.1 시리즈 지원을 위해 최신 버전 사용
 anthropic==0.7.0
+psutil==5.9.6  # 메모리 모니터링을 위해 추가
