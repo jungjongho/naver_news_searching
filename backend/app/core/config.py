@@ -31,6 +31,9 @@ class Settings:
     # 연관성 분석 결과 저장 경로
     RELEVANCE_RESULTS_PATH: str = os.path.join(BASE_DIR, "results", "relevance")
     
+    # 중복 제거 결과 저장 경로
+    DEDUPLICATION_RESULTS_PATH: str = os.path.join(BASE_DIR, "results", "deduplication")
+    
     # 사용자 다운로드 폴더 경로
     USER_DOWNLOAD_PATH: str = os.path.join(HOME_DIR, "Downloads")
     
@@ -54,7 +57,8 @@ class Settings:
         directories = [
             self.RESULTS_PATH,
             self.CRAWLING_RESULTS_PATH,
-            self.RELEVANCE_RESULTS_PATH
+            self.RELEVANCE_RESULTS_PATH,
+            self.DEDUPLICATION_RESULTS_PATH
         ]
         
         for directory in directories:

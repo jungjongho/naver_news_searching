@@ -8,6 +8,7 @@ import MainLayout from './components/layouts/MainLayout';
 // 페이지 컴포넌트
 import HomePage from './pages/HomePage';
 import CrawlerPage from './pages/CrawlerPage';
+import DeduplicationPage from './pages/DeduplicationPage';
 import RelevancePage from './pages/RelevancePage';
 import ResultsPage from './pages/ResultsPage';
 import PromptsPage from './pages/PromptsPage';
@@ -22,6 +23,7 @@ function App() {
           <Route path="/" element={<MainLayout />}>
             <Route index element={<HomePage />} />
             <Route path="crawler" element={<CrawlerPage />} />
+            <Route path="deduplication" element={<DeduplicationPage />} />
             <Route path="relevance" element={<RelevancePage />} />
             <Route path="results" element={<ResultsPage />} />
             <Route path="prompts" element={<PromptsPage />} />

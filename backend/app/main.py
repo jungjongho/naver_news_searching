@@ -11,7 +11,7 @@ import gc
 import asyncio
 from contextlib import asynccontextmanager
 
-from app.api.endpoints import crawler, relevance, download, prompts
+from app.api.endpoints import crawler, relevance, download, prompts, deduplication
 from app.websocket import endpoints as websocket_endpoints
 from app.core.config import settings
 from app.common.exceptions import NewsSearchException
@@ -103,6 +103,7 @@ app.add_middleware(
 
 # API 라우터 설정
 app.include_router(crawler.router)
+app.include_router(deduplication.router)
 app.include_router(relevance.router)
 app.include_router(download.router)
 app.include_router(prompts.router)

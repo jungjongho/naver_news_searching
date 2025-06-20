@@ -137,7 +137,7 @@ const RelevancePage = () => {
     };
   }, [navigate]);
   
-  // 크롤러 페이지에서 전달된 데이터 처리
+  // 크롤러 또는 중복제거 페이지에서 전달된 데이터 처리
   useEffect(() => {
     if (location.state?.crawlResult && location.state?.fromCrawler) {
       const crawlResult = location.state.crawlResult;
@@ -149,6 +149,19 @@ const RelevancePage = () => {
         type: 'success',
         title: '뉴스 수집 완료',
         message: `${crawlResult.item_count}개의 뉴스 기사가 성공적으로 수집되었습니다. 이제 관련성을 평가할 수 있습니다.`,
+      });
+    }
+    
+    if (location.state?.deduplicationResult && location.state?.fromDeduplication) {
+      const deduplicationResult = location.state.deduplicationResult;
+      setSelectedFile(deduplicationResult.file_path);
+      
+      // 자동으로 떠있는 알림 표시
+      setAlert({
+        open: true,
+        type: 'success',
+        title: '중복 제거 완료',
+        message: `중복 제거가 완료되었습니다. ${deduplicationResult.stats.deduplicated_count}개의 고유한 뉴스 기사에 대해 관련성을 평가할 수 있습니다.`,
       });
     }
     
@@ -175,20 +188,22 @@ const RelevancePage = () => {
       const fileList = await crawlerService.getFiles();
       console.log('📂 전체 파일 목록:', fileList);
       
-      // 크롤링 디렉토리에서 온 파일만 필터링 (더 정확한 필터링)
-      const crawlingFiles = fileList.filter(file => 
-        file.directory_type === 'crawling' || 
-        (file.file_type === 'crawling' && !file.has_evaluation)
+      // 크롤링 또는 중복제거 파일만 필터링 (평가되지 않은 파일)
+      const availableFiles = fileList.filter(file => 
+        (file.directory_type === 'crawling' && !file.has_evaluation) ||
+        (file.directory_type === 'deduplication' && !file.has_evaluation) ||
+        (file.file_type === 'crawling' && !file.has_evaluation) ||
+        (file.file_type === 'deduplication' && !file.has_evaluation)
       );
       
-      console.log('📁 크롤링 파일 목록:', crawlingFiles);
-      setFiles(crawlingFiles);
+      console.log('📁 평가 가능한 파일 목록:', availableFiles);
+      setFiles(availableFiles);
       
       if (showRefreshMessage) {
         setAlert({
           open: true,
           type: 'success',
-          message: `파일 목록이 새로고침되었습니다. ${crawlingFiles.length}개의 파일을 찾았습니다.`,
+          message: `파일 목록이 새로고침되었습니다. ${availableFiles.length}개의 파일을 찾았습니다.`,
         });
       }
     } catch (error) {

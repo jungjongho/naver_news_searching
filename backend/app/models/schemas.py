@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 from datetime import datetime
 
@@ -185,3 +185,93 @@ class PromptResponse(BaseModel):
     message: str = Field(..., description="응답 메시지")
     prompt: Optional[PromptTemplate] = Field(None, description="프롬프트 데이터")
     errors: Optional[Dict[str, str]] = Field(None, description="오류 정보")
+
+
+class DeduplicationRequest(BaseModel):
+    """
+    GPT 임베딩 기반 중복 제거 요청 스키마
+    """
+    file_path: str = Field(..., description="중복 제거할 파일 경로")
+    api_key: str = Field(..., description="OpenAI API 키")
+    similarity_threshold: Optional[float] = Field(0.85, description="임베딩 유사도 임계값 (0.85-0.95 권장)")
+    batch_size: Optional[int] = Field(50, description="임베딩 생성 배치 크기")
+    session_id: Optional[str] = Field(None, description="세션 ID (진행률 추적용)")
+    embedding_model: Optional[str] = Field("text-embedding-3-small", description="사용할 임베딩 모델")
+
+
+class DeduplicationResponse(BaseModel):
+    """
+    중복 제거 응답 스키마
+    """
+    success: bool = Field(..., description="중복 제거 성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    file_path: Optional[str] = Field(None, description="결과 파일 경로")
+    stats: Optional[Dict[str, Any]] = Field(None, description="중복 제거 통계 정보")
+    session_id: Optional[str] = Field(None, description="세션 ID")
+    errors: Optional[Dict[str, str]] = Field(None, description="오류 정보")
+
+
+class DuplicateGroup(BaseModel):
+    """
+    중복 그룹 정보
+    """
+    group_id: int = Field(..., description="그룹 ID")
+    representative_title: str = Field(..., description="대표 제목")
+    articles: List[Dict[str, Any]] = Field(..., description="그룹에 속한 기사들")
+    similarity_scores: List[float] = Field(..., description="유사도 점수들")
+    count: int = Field(..., description="그룹 내 기사 수")
+
+class EmbeddingDeduplicationRequest(BaseModel):
+    """
+    GPT 임베딩 기반 중복 제거 요청 스키마
+    """
+    file_path: str = Field(..., description="중복 제거할 파일 경로")
+    api_key: str = Field(..., description="OpenAI API 키")
+    similarity_threshold: Optional[float] = Field(0.85, description="임베딩 유사도 임계값 (0.85-0.95 권장)")
+    batch_size: Optional[int] = Field(50, description="임베딩 생성 배치 크기")
+    session_id: Optional[str] = Field(None, description="세션 ID (진행률 추적용)")
+    embedding_model: Optional[str] = Field("text-embedding-3-small", description="사용할 임베딩 모델")
+
+
+class AutoDeduplicationRequest(BaseModel):
+    """
+    자동 중복 제거 요청 스키마 (데이터 크기에 따라 방식 자동 선택)
+    """
+    file_path: str = Field(..., description="중복 제거할 파일 경로")
+    api_key: Optional[str] = Field(None, description="OpenAI API 키 (임베딩 방식 사용시 필요)")
+    tfidf_threshold: Optional[float] = Field(0.70, description="TF-IDF 유사도 임계값")
+    embedding_threshold: Optional[float] = Field(0.85, description="임베딩 유사도 임계값")
+    batch_size: Optional[int] = Field(50, description="배치 처리 크기")
+    session_id: Optional[str] = Field(None, description="세션 ID (진행률 추적용)")
+    force_method: Optional[str] = Field(None, description="강제 방식 선택 (tfidf, embedding)")
+
+
+class DeduplicationMethodInfo(BaseModel):
+    """
+    중복 제거 방식 정보
+    """
+    name: str = Field(..., description="방식 이름")
+    description: str = Field(..., description="방식 설명")
+    pros: List[str] = Field(..., description="장점 목록")
+    cons: List[str] = Field(..., description="단점 목록")
+    recommended_threshold: str = Field(..., description="권장 임계값 범위")
+    cost: str = Field(..., description="비용 정보")
+
+
+class DeduplicationMethodsResponse(BaseModel):
+    """
+    중복 제거 방식 목록 응답
+    """
+    methods: Dict[str, DeduplicationMethodInfo] = Field(..., description="사용 가능한 방식들")
+    recommendations: Dict[str, str] = Field(..., description="상황별 권장사항")
+
+
+# 기존 DeduplicationResponse에 추가할 필드들 (기존 코드 수정용)
+class EnhancedDeduplicationResponse(DeduplicationResponse):
+    """
+    강화된 중복 제거 응답 스키마
+    """
+    method_used: Optional[str] = Field(None, description="사용된 중복 제거 방식")
+    processing_details: Optional[Dict[str, Any]] = Field(None, description="처리 상세 정보")
+    cost_info: Optional[Dict[str, Any]] = Field(None, description="비용 정보 (임베딩 사용시)")
+    performance_metrics: Optional[Dict[str, Any]] = Field(None, description="성능 지표")

@@ -23,6 +23,7 @@ import HomeIcon from '@mui/icons-material/Home';
 import SearchIcon from '@mui/icons-material/Search';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import TableViewIcon from '@mui/icons-material/TableView';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import EditIcon from '@mui/icons-material/Edit';
 import Footer from './Footer';
 
@@ -32,6 +33,7 @@ const drawerWidth = 240;
 const menuItems = [
   { text: '홈', path: '/', icon: <HomeIcon /> },
   { text: '뉴스 수집', path: '/crawler', icon: <SearchIcon /> },
+  { text: '중복 제거', path: '/deduplication', icon: <FilterListIcon /> },
   { text: '관련성 평가', path: '/relevance', icon: <CalculateIcon /> },
   { text: '결과 목록', path: '/results', icon: <TableViewIcon /> },
   { text: '프롬프트 관리', path: '/prompts', icon: <EditIcon /> },

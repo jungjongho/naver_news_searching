@@ -142,6 +142,22 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
               }, 1000);
               break;
               
+            case 'deduplication_complete':
+              console.log('✅ 중복 제거 완료:', data.stats);
+              setProgress(prev => ({
+                ...prev,
+                isComplete: true
+              }));
+              setStats(data.stats);
+              
+              // 중복 제거 성공 알림 표시
+              setTimeout(() => {
+                if (window.showDeduplicationSuccessAlert) {
+                  window.showDeduplicationSuccessAlert(data.stats, false);
+                }
+              }, 1000);
+              break;
+              
             case 'analysis_stopped':
               console.log('⏹️ 분석 중지:', data.message);
               setProgress(prev => ({
@@ -286,11 +302,18 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
     setStats(null);
     setIsStopRequested(false);
     
-    // 분석 완료 시 결과 페이지로 이동
+    // 분석 완료 시 상태 초기화
     if (progress.isComplete && window.analysisResult) {
       // 부모 컴포넌트에서 navigate 호출
       if (window.navigateToResults) {
         window.navigateToResults(window.analysisResult);
+      }
+    }
+    
+    // 중복 제거 완료 시 관련성 평가 페이지로 이동
+    if (progress.isComplete && window.deduplicationResult) {
+      if (window.navigateToRelevance) {
+        window.navigateToRelevance(window.deduplicationResult);
       }
     }
     
@@ -354,7 +377,13 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
             <Typography variant="h6" component="span">오류 발생</Typography>
           </Box>
         ) : (
-          <Typography variant="h6" component="span">관련성 평가 진행 중...</Typography>
+          <Typography variant="h6" component="span">
+            {/* 제목을 type prop이나 stats 내용으로 결정 */}
+            {stats?.relevant_items !== undefined || recentArticles.some(a => a.category) 
+              ? '관련성 평가 진행 중...' 
+              : '중복 제거 진행 중...'
+            }
+          </Typography>
         )}
       </DialogTitle>
       
@@ -393,42 +422,67 @@ const ProgressDialog = ({ open, onClose, sessionId }) => {
               <Card sx={{ mb: 3, bgcolor: 'success.light', color: 'success.contrastText' }}>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
-                    분석 완료 결과
+                    {stats.relevant_items !== undefined ? '분석 완료 결과' : '중복 제거 완료 결과'}
                   </Typography>
                   
-                  <Grid container spacing={2}>
-                    <Grid item xs={6} sm={3}>
-                      <Typography variant="body2">총 기사 수</Typography>
-                      <Typography variant="h6">{stats.total_items}개</Typography>
+                  {stats.relevant_items !== undefined ? (
+                    // 관련성 분석 결과
+                    <>
+                      <Grid container spacing={2}>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="body2">총 기사 수</Typography>
+                          <Typography variant="h6">{stats.total_items}개</Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="body2">관련 기사</Typography>
+                          <Typography variant="h6">{stats.relevant_items}개</Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="body2">관련성 비율</Typography>
+                          <Typography variant="h6">{stats.relevant_percent}%</Typography>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                          <Typography variant="body2">처리 오류</Typography>
+                          <Typography variant="h6">{stats.processing_errors}개</Typography>
+                        </Grid>
+                      </Grid>
+                      
+                      {/* 카테고리별 통계 */}
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="body2" gutterBottom>카테고리별 분류:</Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                          {Object.entries(stats.categories || {}).map(([category, count]) => (
+                            <Chip
+                              key={category}
+                              label={`${getCategoryIcon(category)} ${category}: ${count}개`}
+                              color={getCategoryColor(category)}
+                              size="small"
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    </>
+                  ) : (
+                    // 중복 제거 결과
+                    <Grid container spacing={2}>
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="body2">원본 기사 수</Typography>
+                        <Typography variant="h6">{stats.original_count}개</Typography>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="body2">최종 기사 수</Typography>
+                        <Typography variant="h6">{stats.deduplicated_count}개</Typography>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="body2">제거된 기사</Typography>
+                        <Typography variant="h6">{stats.removed_count}개</Typography>
+                      </Grid>
+                      <Grid item xs={6} sm={3}>
+                        <Typography variant="body2">제거율</Typography>
+                        <Typography variant="h6">{stats.reduction_percentage}%</Typography>
+                      </Grid>
                     </Grid>
-                    <Grid item xs={6} sm={3}>
-                      <Typography variant="body2">관련 기사</Typography>
-                      <Typography variant="h6">{stats.relevant_items}개</Typography>
-                    </Grid>
-                    <Grid item xs={6} sm={3}>
-                      <Typography variant="body2">관련성 비율</Typography>
-                      <Typography variant="h6">{stats.relevant_percent}%</Typography>
-                    </Grid>
-                    <Grid item xs={6} sm={3}>
-                      <Typography variant="body2">처리 오류</Typography>
-                      <Typography variant="h6">{stats.processing_errors}개</Typography>
-                    </Grid>
-                  </Grid>
-                  
-                  {/* 카테고리별 통계 */}
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="body2" gutterBottom>카테고리별 분류:</Typography>
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                      {Object.entries(stats.categories || {}).map(([category, count]) => (
-                        <Chip
-                          key={category}
-                          label={`${getCategoryIcon(category)} ${category}: ${count}개`}
-                          color={getCategoryColor(category)}
-                          size="small"
-                        />
-                      ))}
-                    </Box>
-                  </Box>
+                  )}
                 </CardContent>
               </Card>
             )}

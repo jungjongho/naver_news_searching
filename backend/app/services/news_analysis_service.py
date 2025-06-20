@@ -428,6 +428,27 @@ class NewsAnalysisService:
                                           if stats["total_items"] > 0 else 0)
         stats["analysis_success_percent"] = round(stats["analysis_success_rate"] * 100, 1)
         stats["processing_time"] = round((time.time() - start_time) / 60, 1)
+        
+        # relevant_items 및 relevant_percent 계산 추가
+        field_stats = stats.get("field_statistics", {})
+        categories = {}
+        
+        # 첫 번째 필드를 카테고리로 간주하고 통계 추출
+        for field_name, field_values in field_stats.items():
+            if field_name.lower() in ['category', '카테고리'] or field_name == list(field_stats.keys())[0]:
+                for value, count in field_values.items():
+                    if value and value != "None" and value != "unknown":
+                        categories[str(value)] = count
+                break
+        
+        # 전체 관련 기사 수 계산 (기타 제외)
+        relevant_items = sum(count for category, count in categories.items() 
+                           if category not in ['기타', 'unknown', 'default'])
+        relevant_percent = round((relevant_items / stats["total_items"]) * 100, 1) if stats["total_items"] > 0 else 0
+        
+        stats["categories"] = categories
+        stats["relevant_items"] = relevant_items
+        stats["relevant_percent"] = relevant_percent
     
     def _save_analysis_results(self, analyzed_data: List[Dict[str, Any]], 
                               original_file_path: str) -> str:

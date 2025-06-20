@@ -46,6 +46,7 @@ class FileManager:
         # 검색 경로 정의
         search_paths = [
             self.settings.CRAWLING_RESULTS_PATH,
+            self.settings.DEDUPLICATION_RESULTS_PATH,
             self.settings.RELEVANCE_RESULTS_PATH,
             self.settings.RESULTS_PATH
         ]
@@ -69,6 +70,7 @@ class FileManager:
         if directory is None:
             directories_to_check = [
                 (self.settings.CRAWLING_RESULTS_PATH, "crawling"),
+                (self.settings.DEDUPLICATION_RESULTS_PATH, "deduplication"),
                 (self.settings.RELEVANCE_RESULTS_PATH, "relevance"),
                 (self.settings.RESULTS_PATH, "legacy")
             ]
@@ -120,14 +122,21 @@ class FileManager:
         
         # 디렉토리 기반으로 평가 여부 판단 (더 정확함)
         # crawling 디렉토리의 파일은 평가되지 않은 원본 파일
+        # deduplication 디렉토리의 파일은 중복 제거된 파일 (평가 가능)
         # relevance 디렉토리의 파일은 이미 평가된 결과 파일
         if dir_type == "crawling":
             has_evaluation = False  # 크롤링 디렉토리 파일은 아직 평가되지 않음
+            has_deduplication = False  # 중복 제거되지 않음
+        elif dir_type == "deduplication":
+            has_evaluation = False  # 중복 제거만 됨, 아직 평가되지 않음
+            has_deduplication = True   # 중복 제거됨
         elif dir_type == "relevance":
             has_evaluation = True   # 관련성 디렉토리 파일은 이미 평가됨
+            has_deduplication = '_deduplicated' in filename  # 파일명으로 판단
         else:
             # legacy 파일들은 파일명으로 판단
             has_evaluation = '_analyzed' in filename
+            has_deduplication = '_deduplicated' in filename
         
         file_type = self._determine_file_type(dir_type, filename)
         
@@ -144,6 +153,7 @@ class FileManager:
             'modified': datetime.fromtimestamp(file_stats.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
             'type': 'XLSX',
             'has_evaluation': has_evaluation,
+            'has_deduplication': has_deduplication,
             'is_evaluated': has_evaluation
         }
     
@@ -151,10 +161,14 @@ class FileManager:
         """파일 타입 결정"""
         if dir_type == "crawling":
             return "crawling"
+        elif dir_type == "deduplication":
+            return "deduplication"
         elif dir_type == "relevance":
             return "relevance"
         elif '_analyzed' in filename:
             return "relevance"
+        elif '_deduplicated' in filename:
+            return "deduplication"
         else:
             return "crawling"
     

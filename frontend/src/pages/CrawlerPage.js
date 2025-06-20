@@ -114,7 +114,7 @@ const CrawlerPage = () => {
         
         // 결과 페이지로 이동 (0.5초 후)
         setTimeout(() => {
-          navigate('/relevance', { 
+          navigate('/deduplication', { 
             state: { 
               crawlResult: result,
               fromCrawler: true
