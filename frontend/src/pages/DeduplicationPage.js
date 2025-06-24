@@ -29,6 +29,7 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import SettingsIcon from '@mui/icons-material/Settings';
+import LockIcon from '@mui/icons-material/Lock';
 
 import PageTitle from '../components/common/PageTitle';
 import AlertMessage from '../components/common/AlertMessage';
@@ -36,6 +37,7 @@ import LoadingOverlay from '../components/common/LoadingOverlay';
 import ProgressDialog from '../components/common/ProgressDialog';
 import deduplicationService from '../api/deduplicationService';
 import crawlerService from '../api/crawlerService';
+import { storage } from '../utils/helpers';
 
 const DeduplicationPage = () => {
   const location = useLocation();
@@ -52,6 +54,7 @@ const DeduplicationPage = () => {
   const [sessionId, setSessionId] = useState(null);
   const [alert, setAlert] = useState({ open: false, type: 'info', message: '', title: '' });
   const [advancedSettings, setAdvancedSettings] = useState(false);
+  const [apiKeyMasked, setApiKeyMasked] = useState(true);
   
   // 컴포넌트 마운트 시 초기 데이터 로드
   useEffect(() => {
@@ -101,7 +104,7 @@ const DeduplicationPage = () => {
     };
   }, [navigate]);
   
-  // 크롤러 페이지에서 전달된 데이터 처리
+  // 크롤러 페이지에서 전달된 데이터 처리 및 저장된 API 키 로드
   useEffect(() => {
     if (location.state?.crawlResult && location.state?.fromCrawler) {
       const crawlResult = location.state.crawlResult;
@@ -114,6 +117,19 @@ const DeduplicationPage = () => {
         message: `${crawlResult.item_count}개의 뉴스 기사가 성공적으로 수집되었습니다. 이제 중복을 제거할 수 있습니다.`,
       });
     }
+    
+    // API 키 설정 로드 (관련성 평가와 동일한 로직)
+    const savedApiKey = storage.get('openai_api_key', '');
+    if (savedApiKey) {
+      setApiKey(savedApiKey);
+    }
+    
+    // 유사도 임계값과 배치 크기 설정도 저장/로드
+    const savedThreshold = storage.get('deduplication_similarity_threshold', 0.85);
+    setSimilarityThreshold(savedThreshold);
+    
+    const savedBatchSize = storage.get('deduplication_batch_size', 50);
+    setBatchSize(savedBatchSize);
   }, [location.state]);
   
   // 파일 목록 로드
@@ -150,6 +166,40 @@ const DeduplicationPage = () => {
         message: '파일 목록을 불러오는 중 오류가 발생했습니다.',
       });
     }
+  };
+
+  // API 키 저장 (관련성 평가와 동일한 로직)
+  const handleSaveApiKey = () => {
+    if (apiKey.trim()) {
+      storage.set('openai_api_key', apiKey);
+      setAlert({
+        open: true,
+        type: 'success',
+        message: 'API 키가 저장되었습니다.',
+      });
+      
+      // 3초 후 알림 닫기
+      setTimeout(() => {
+        setAlert({ ...alert, open: false });
+      }, 3000);
+    }
+  };
+  
+  // API 키 마스킹 토글 (관련성 평가와 동일한 로직)
+  const toggleApiKeyMask = () => {
+    setApiKeyMasked(!apiKeyMasked);
+  };
+  
+  // 유사도 임계값 변경 및 저장
+  const handleSimilarityThresholdChange = (event, value) => {
+    setSimilarityThreshold(value);
+    storage.set('deduplication_similarity_threshold', value);
+  };
+  
+  // 배치 크기 변경 및 저장
+  const handleBatchSizeChange = (event, value) => {
+    setBatchSize(value);
+    storage.set('deduplication_batch_size', value);
   };
 
   // 중복 제거 실행
@@ -314,21 +364,6 @@ const DeduplicationPage = () => {
               )}
             </Box>
             
-            {/* OpenAI API 키 입력 */}
-            <Box sx={{ mb: 3 }}>
-              <TextField
-                fullWidth
-                label="OpenAI API 키"
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-..."
-                helperText="GPT 임베딩 방식으로 중복 제거를 위해 OpenAI API 키가 필요합니다."
-                variant="outlined"
-                required
-              />
-            </Box>
-            
             <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button
                 variant="outlined"
@@ -342,6 +377,47 @@ const DeduplicationPage = () => {
           </Paper>
           
           <Paper sx={{ p: 3 }}>
+            <Typography variant="h6" gutterBottom>
+              API 설정
+            </Typography>
+            
+            {/* OpenAI API 키 입력 (관련성 평가와 동일한 UI) */}
+            <Box sx={{ mb: 3 }}>
+              <TextField
+                fullWidth
+                label="OpenAI API 키"
+                variant="outlined"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                type={apiKeyMasked ? 'password' : 'text'}
+                placeholder="sk-..."
+                InputProps={{
+                  endAdornment: (
+                    <Tooltip title={apiKeyMasked ? "API 키 보기" : "API 키 숨기기"}>
+                      <IconButton onClick={toggleApiKeyMask}>
+                        <LockIcon />
+                      </IconButton>
+                    </Tooltip>
+                  ),
+                }}
+              />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                GPT 임베딩 방식으로 중복 제거를 위해 OpenAI API 키가 필요합니다. API 키는 브라우저에 로컬로 저장되며, 서버로 전송되지 않습니다.
+              </Typography>
+              
+              <Button
+                variant="outlined"
+                color="primary"
+                onClick={handleSaveApiKey}
+                disabled={!apiKey.trim()}
+                sx={{ mt: 1 }}
+              >
+                API 키 저장
+              </Button>
+            </Box>
+            
+            <Divider sx={{ mb: 3 }} />
+            
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
               <Typography variant="h6" sx={{ flexGrow: 1 }}>
                 중복 제거 설정
@@ -360,7 +436,7 @@ const DeduplicationPage = () => {
               </Typography>
               <Slider
                 value={similarityThreshold}
-                onChange={(e, value) => setSimilarityThreshold(value)}
+                onChange={handleSimilarityThresholdChange}
                 min={0.5}
                 max={0.95}
                 step={0.05}
@@ -391,7 +467,7 @@ const DeduplicationPage = () => {
                   </Typography>
                   <Slider
                     value={batchSize}
-                    onChange={(e, value) => setBatchSize(value)}
+                    onChange={handleBatchSizeChange}
                     min={10}
                     max={100}
                     step={10}
@@ -468,6 +544,15 @@ const DeduplicationPage = () => {
                     secondary="배치 처리로 API 비용 최소화. 1000개 기사 처리 시 약 $0.02-0.05 예상"
                   />
                 </ListItem>
+                <ListItem>
+                  <ListItemIcon>
+                    <InfoOutlinedIcon color="primary" fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary="설정 자동 저장"
+                    secondary="API 키, 유사도 임계값, 배치 크기 설정이 브라우저에 자동으로 저장되어 다음에도 편리하게 사용할 수 있습니다."
+                  />
+                </ListItem>
               </List>
             </CardContent>
           </Card>
@@ -485,7 +570,7 @@ const DeduplicationPage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="API 키 설정"
-                    secondary="OpenAI API 키가 필요합니다. openai.com에서 발급 받으세요. sk-로 시작합니다."
+                    secondary="OpenAI API 키가 필요합니다. openai.com에서 발급 받으세요. sk-로 시작하며, 한 번 저장하면 자동으로 기억됩니다."
                   />
                 </ListItem>
                 <ListItem>
@@ -494,7 +579,7 @@ const DeduplicationPage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="유사도 임계값"
-                    secondary="0.85 (권장): 적절한 수준의 중복 제거. 0.9 이상: 매우 엄격, 0.8 이하: 더 많은 기사를 중복으로 판단"
+                    secondary="0.85 (권장): 적절한 수준의 중복 제거. 0.9 이상: 매우 엄격, 0.8 이하: 더 많은 기사를 중복으로 판단. 설정은 자동 저장됩니다."
                   />
                 </ListItem>
                 <ListItem>
@@ -503,7 +588,7 @@ const DeduplicationPage = () => {
                   </ListItemIcon>
                   <ListItemText
                     primary="처리 시간 및 비용"
-                    secondary="1000개 기사 기준 약 2-3분 소요. API 비용은 매우 저렴합니다 ($0.02-0.05)."
+                    secondary="1000개 기사 기준 약 2-3분 소요. API 비용은 매우 저렴합니다 ($0.02-0.05). 관련성 평가에서 저장한 API 키를 자동으로 사용합니다."
                   />
                 </ListItem>
               </List>
