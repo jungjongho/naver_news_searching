@@ -10,13 +10,57 @@ echo.
 
 REM 이전에 실행 중인 프로세스 종료
 echo 🔄 이전 실행 중인 앱을 정리하는 중...
-taskkill /f /im python.exe /fi "WINDOWTITLE eq 백엔드 서버" >nul 2>&1
-taskkill /f /im node.exe /fi "WINDOWTITLE eq 프론트엔드 서버" >nul 2>&1
+taskkill /f /im python.exe >nul 2>&1
+taskkill /f /im node.exe >nul 2>&1
+
+REM Python 명령어 찾기
+set PYTHON_CMD=
+python --version >nul 2>&1
+if not errorlevel 1 (
+    set PYTHON_CMD=python
+    goto :found_python
+)
+
+py --version >nul 2>&1
+if not errorlevel 1 (
+    set PYTHON_CMD=py
+    goto :found_python
+)
+
+python3 --version >nul 2>&1
+if not errorlevel 1 (
+    set PYTHON_CMD=python3
+    goto :found_python
+)
+
+echo ❌ Python을 찾을 수 없습니다. install_windows.bat를 먼저 실행해주세요.
+pause
+exit /b 1
+
+:found_python
+REM Node.js 명령어 찾기
+set NODE_CMD=node
+set NPM_CMD=npm
+node --version >nul 2>&1
+if errorlevel 1 (
+    echo ❌ Node.js를 찾을 수 없습니다. install_windows.bat를 먼저 실행해주세요.
+    pause
+    exit /b 1
+)
 
 REM 백엔드 시작
 echo [1/3] 🐍 Python 백엔드 서버를 시작하는 중...
 cd backend
-start /min cmd /k "title 백엔드 서버 && call venv\Scripts\activate.bat && python run.py"
+
+REM 가상환경 확인 및 활성화
+if not exist "venv\Scripts\activate.bat" (
+    echo ❌ Python 가상환경을 찾을 수 없습니다.
+    echo install_windows.bat를 먼저 실행해주세요.
+    pause
+    exit /b 1
+)
+
+start /min cmd /k "title 백엔드 서버 && call venv\Scripts\activate.bat && %PYTHON_CMD% run.py"
 cd ..
 
 REM 백엔드 시작 대기
@@ -26,7 +70,16 @@ timeout /t 5 /nobreak >nul
 REM 프론트엔드 시작
 echo [2/3] ⚛️ React 프론트엔드를 시작하는 중...
 cd frontend
-start /min cmd /k "title 프론트엔드 서버 && npm start"
+
+REM node_modules 확인
+if not exist "node_modules" (
+    echo ❌ Node.js 패키지를 찾을 수 없습니다.
+    echo install_windows.bat를 먼저 실행해주세요.
+    pause
+    exit /b 1
+)
+
+start /min cmd /k "title 프론트엔드 서버 && %NPM_CMD% start"
 cd ..
 
 REM 프론트엔드 시작 대기
@@ -49,5 +102,10 @@ echo    - stop_app.bat 파일을 실행하거나
 echo    - 이 창을 닫으세요
 echo.
 echo 💡 문제가 발생하면 stop_app.bat를 실행한 후 다시 시도해보세요.
+echo.
+echo 현재 사용 중인 명령어:
+echo - Python: %PYTHON_CMD%
+echo - Node.js: %NODE_CMD%
+echo - NPM: %NPM_CMD%
 echo.
 pause
