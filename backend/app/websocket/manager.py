@@ -186,6 +186,33 @@ class ConnectionManager:
         logger.info(f"분석 완료 메시지 전송: session_id={session_id}, 총 {processed_stats['total_items']}개, 관련 {relevant_items}개 ({relevant_percent}%)")
         return await self.send_personal_message(completion_data, session_id)
     
+    async def send_deduplication_completion_message(self, session_id: str, stats: dict):
+        """중복 제거 완료 메시지 전송"""
+        
+        if not self.is_session_active(session_id):
+            return False
+        
+        # 중복 제거 통계 데이터 정리
+        processed_stats = {
+            "original_count": stats.get("original_count", 0),
+            "deduplicated_count": stats.get("deduplicated_count", 0),
+            "removed_count": stats.get("removed_count", 0),
+            "duplicate_groups_count": stats.get("duplicate_groups_count", 0),
+            "reduction_percentage": stats.get("reduction_percentage", 0),
+            "processing_time": stats.get("processing_time", 0),
+            "similarity_threshold": stats.get("similarity_threshold", 0.85),
+            "method": stats.get("method", "GPT 임베딩"),
+            "embedding_model": stats.get("embedding_model", "text-embedding-3-small")
+        }
+        
+        completion_data = {
+            "type": "deduplication_complete",
+            "stats": processed_stats
+        }
+        
+        logger.info(f"중복 제거 완료 메시지 전송: session_id={session_id}, 원본 {processed_stats['original_count']}개 → 최종 {processed_stats['deduplicated_count']}개 ({processed_stats['reduction_percentage']}% 감소)")
+        return await self.send_personal_message(completion_data, session_id)
+    
     async def send_error_message(self, session_id: str, error_message: str):
         """오류 메시지 전송"""
         

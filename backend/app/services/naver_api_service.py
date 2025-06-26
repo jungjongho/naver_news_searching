@@ -127,7 +127,7 @@ class NaverApiService:
             return None
     
     def search_news(self, keyword: str, max_news: int = 100, sort: str = "date", days: int = 30, start_date: str = None, end_date: str = None) -> List[Dict[str, Any]]:
-        """특정 키워드에 대한 네이버 뉴스 검색"""
+        """특정 키워드에 대한 네이버 뉴스 검색 - 개선된 버전"""
         logger.info(f"Searching news for keyword: {keyword}")
         
         # 날짜 범위 설정
@@ -155,6 +155,8 @@ class NaverApiService:
         
         encoded_query = quote(keyword)
         all_news = []
+        consecutive_failures = 0
+        max_consecutive_failures = 3  # 연속 실패 허용 횟수
         
         display = min(100, max_news)
         
@@ -167,12 +169,19 @@ class NaverApiService:
             url = f"https://openapi.naver.com/v1/search/news.json?query={encoded_query}&display={current_display}&start={start}&sort={sort}"
             
             try:
-                res = requests.get(url, headers=self.headers)
+                res = requests.get(url, headers=self.headers, timeout=15)  # 타임아웃 증가
                 res.raise_for_status()
                 
-                items = res.json().get("items", [])
+                response_data = res.json()
+                items = response_data.get("items", [])
+                
+                logger.debug(f"키워드 '{keyword}': start={start}, 요청={current_display}개, 응답={len(items)}개")
+                
                 if not items:
+                    logger.info(f"키워드 '{keyword}': start={start}에서 더 이상 결과 없음")
                     break
+                
+                consecutive_failures = 0  # 성공하면 실패 카운터 리셋
                 
                 for idx, item in enumerate(items):
                     # news_id 생성: 전체 인덱스 기준
@@ -184,40 +193,91 @@ class NaverApiService:
                     elif processed_item is None and 'pubDate' in item:
                         # 날짜 범위를 벗어났으면 검색 종료 (정렬이 날짜순인 경우)
                         if sort == "date":
+                            logger.info(f"키워드 '{keyword}': 날짜 범위 초과로 검색 종료")
                             break
                 
-                if len(items) < current_display or len(all_news) >= max_news:
+                # API 응답이 요청한 것보다 적으면 더 이상 결과가 없는 것
+                if len(items) < current_display:
+                    logger.info(f"키워드 '{keyword}': API 응답 부족 (요청: {current_display}, 응답: {len(items)})")
                     break
                     
+                # 목표 개수에 도달했으면 종료
+                if len(all_news) >= max_news:
+                    logger.info(f"키워드 '{keyword}': 목표 개수 도달 ({len(all_news)}/{max_news})")
+                    break
+                    
+            except requests.exceptions.Timeout:
+                consecutive_failures += 1
+                logger.warning(f"키워드 '{keyword}': 타임아웃 발생 (start={start}), 재시도 중... ({consecutive_failures}/{max_consecutive_failures})")
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error(f"키워드 '{keyword}': 연속 타임아웃으로 검색 중단")
+                    break
+                continue  # 타임아웃은 재시도
+                
             except requests.exceptions.RequestException as e:
-                logger.error(f"API 요청 오류: {str(e)}")
-                break
+                consecutive_failures += 1
+                logger.warning(f"키워드 '{keyword}': API 요청 오류 (start={start}): {str(e)} ({consecutive_failures}/{max_consecutive_failures})")
+                if consecutive_failures >= max_consecutive_failures:
+                    logger.error(f"키워드 '{keyword}': 연속 실패로 검색 중단")
+                    break
+                continue  # 일반적인 요청 오류도 재시도
+                
+            except Exception as e:
+                logger.error(f"키워드 '{keyword}': 예상치 못한 오류 (start={start}): {str(e)}")
+                break  # 예상치 못한 오류는 바로 중단
         
-        logger.info(f"Found {len(all_news)} news items for keyword: {keyword}")
+        logger.info(f"키워드 '{keyword}': 총 {len(all_news)}개 뉴스 수집 완료")
         return all_news
     
     def search_keywords(self, keywords: List[str], max_news_per_keyword: int = 100, 
                        sort: str = "date", days: int = 30, start_date: str = None, end_date: str = None) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
-        """여러 키워드에 대한 뉴스 검색"""
+        """여러 키워드에 대한 뉴스 검색 - 개선된 버전"""
         all_news_items = []
         errors = {}
         
-        for keyword in keywords:
+        logger.info(f"총 {len(keywords)}개 키워드 검색 시작: {keywords}")
+        logger.info(f"키워드당 최대 개수: {max_news_per_keyword}, 정렬: {sort}")
+        
+        for i, keyword in enumerate(keywords, 1):
+            logger.info(f"[{i}/{len(keywords)}] 키워드 '{keyword}' 검색 시작...")
             try:
                 news_items = self.search_news(keyword, max_news_per_keyword, sort, days, start_date, end_date)
-                all_news_items.extend(news_items)
+                logger.info(f"[{i}/{len(keywords)}] 키워드 '{keyword}': {len(news_items)}개 뉴스 수집")
+                
+                if news_items:
+                    all_news_items.extend(news_items)
+                else:
+                    logger.warning(f"[{i}/{len(keywords)}] 키워드 '{keyword}': 검색 결과 없음")
+                    
             except Exception as e:
-                logger.error(f"키워드 '{keyword}' 검색 오류: {str(e)}")
+                logger.error(f"[{i}/{len(keywords)}] 키워드 '{keyword}' 검색 오류: {str(e)}")
                 errors[keyword] = str(e)
         
+        logger.info(f"전체 검색 완료 - 중복 제거 전 총 {len(all_news_items)}개 뉴스")
+        
         if all_news_items:
+            # 중복 제거 전 각 키워드별 통계 로깅
+            keyword_stats = {}
+            for item in all_news_items:
+                keyword = item.get('keyword', '마암')
+                keyword_stats[keyword] = keyword_stats.get(keyword, 0) + 1
+            
+            for keyword, count in keyword_stats.items():
+                logger.info(f"키워드 '{keyword}': {count}개 뉴스")
+            
+            # 중복 제거 실행
+            original_count = len(all_news_items)
             all_news_items = deduplicate_by_url(all_news_items)
+            removed_count = original_count - len(all_news_items)
+            
+            logger.info(f"중복 제거 완료: {removed_count}개 중복 제거, 최종 {len(all_news_items)}개 뉴스")
             
             # 중복 제거 후 news_id 재생성
             for i, item in enumerate(all_news_items, 1):
                 item["news_id"] = f"news_{i}"
+        else:
+            logger.warning("모든 키워드에서 검색 결과가 없습니다.")
         
-        logger.info(f"중복 제거 후 총 뉴스 개수: {len(all_news_items)}")
         return all_news_items, errors
     
     def _format_keywords_for_filename(self, keywords: List[str]) -> str:

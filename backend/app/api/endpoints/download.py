@@ -25,10 +25,18 @@ async def download_file(file_name: str):
     """
     # 파일 경로 찾기
     file_path = None
-    for search_path in [settings.CRAWLING_RESULTS_PATH, settings.RELEVANCE_RESULTS_PATH, settings.RESULTS_PATH]:
+    search_paths = [
+        settings.DEDUPLICATION_RESULTS_PATH,  # 중복제거 결과 경로 추가
+        settings.CRAWLING_RESULTS_PATH, 
+        settings.RELEVANCE_RESULTS_PATH, 
+        settings.RESULTS_PATH
+    ]
+    
+    for search_path in search_paths:
         potential_path = os.path.join(search_path, file_name)
         if os.path.exists(potential_path):
             file_path = potential_path
+            logger.info(f"파일 발견: {file_path}")
             break
     
     if not file_path:

@@ -189,12 +189,27 @@ const RelevancePage = () => {
       console.log('📂 전체 파일 목록:', fileList);
       
       // 크롤링 또는 중복제거 파일만 필터링 (평가되지 않은 파일)
-      const availableFiles = fileList.filter(file => 
-        (file.directory_type === 'crawling' && !file.has_evaluation) ||
-        (file.directory_type === 'deduplication' && !file.has_evaluation) ||
-        (file.file_type === 'crawling' && !file.has_evaluation) ||
-        (file.file_type === 'deduplication' && !file.has_evaluation)
-      );
+      const availableFiles = fileList.filter(file => {
+        // 디렉토리 타입 기준
+        const isDeduplicationFile = (
+          file.directory_type === 'deduplication' && !file.has_evaluation
+        );
+        
+        const isCrawlingFile = (
+          file.directory_type === 'crawling' && !file.has_evaluation
+        );
+        
+        // 파일 타입 기준 (백업)
+        const isDeduplicationFileByType = (
+          file.file_type === 'deduplication' && !file.has_evaluation
+        );
+        
+        const isCrawlingFileByType = (
+          file.file_type === 'crawling' && !file.has_evaluation
+        );
+        
+        return isDeduplicationFile || isCrawlingFile || isDeduplicationFileByType || isCrawlingFileByType;
+      });
       
       console.log('📁 평가 가능한 파일 목록:', availableFiles);
       setFiles(availableFiles);

@@ -34,32 +34,54 @@ class FileManager:
     
     def find_file_path(self, file_name: str) -> Optional[str]:
         """캐시를 활용한 효율적인 파일 경로 찾기"""
+        logger.info(f"파일 찾기 시작: {file_name}")
+        
         # 캐시에서 먼저 확인
         if file_name in self._file_cache:
             cached_path = self._file_cache[file_name]
             if os.path.exists(cached_path):
+                logger.info(f"캐시에서 파일 발견: {cached_path}")
                 return cached_path
             else:
                 # 캐시된 파일이 삭제되었으면 캐시에서 제거
+                logger.warning(f"캐시된 파일이 존재하지 않음: {cached_path}")
                 del self._file_cache[file_name]
         
-        # 검색 경로 정의
+        # 검색 경로 정의 (우선순위 조정)
         search_paths = [
-            self.settings.CRAWLING_RESULTS_PATH,
-            self.settings.DEDUPLICATION_RESULTS_PATH,
-            self.settings.RELEVANCE_RESULTS_PATH,
-            self.settings.RESULTS_PATH
+            (self.settings.DEDUPLICATION_RESULTS_PATH, "deduplication"),  # 중복제거 결과 우선
+            (self.settings.CRAWLING_RESULTS_PATH, "crawling"),
+            (self.settings.RELEVANCE_RESULTS_PATH, "relevance"),
+            (self.settings.RESULTS_PATH, "legacy")
         ]
         
-        for search_path in search_paths:
+        for search_path, path_type in search_paths:
             if not os.path.exists(search_path):
+                logger.debug(f"경로가 존재하지 않음: {search_path}")
                 continue
                 
             potential_path = os.path.join(search_path, file_name)
+            logger.debug(f"검색 시도 ({path_type}): {potential_path}")
+            
             if os.path.exists(potential_path):
                 # 캐시에 저장
                 self._file_cache[file_name] = potential_path
+                logger.info(f"파일 발견 ({path_type}): {potential_path}")
                 return potential_path
+        
+        # 모든 경로에서 찾지 못한 경우 상세 로그
+        logger.error(f"파일을 찾을 수 없음: {file_name}")
+        logger.error(f"검색한 경로들:")
+        for search_path, path_type in search_paths:
+            if os.path.exists(search_path):
+                files_in_dir = os.listdir(search_path)
+                logger.error(f"  {path_type} ({search_path}): {len(files_in_dir)}개 파일")
+                # 비슷한 파일명 찾기
+                similar_files = [f for f in files_in_dir if file_name.lower() in f.lower() or f.lower() in file_name.lower()]
+                if similar_files:
+                    logger.error(f"    비슷한 파일들: {similar_files[:5]}")
+            else:
+                logger.error(f"  {path_type} ({search_path}): 경로 없음")
         
         return None
     
@@ -213,11 +235,29 @@ class FileManager:
     def _copy_to_download_optimized(self, file_path: str, download_path: str) -> Optional[str]:
         """최적화된 다운로드 폴더 복사"""
         try:
+            # 원본 파일 존재 확인
+            if not os.path.exists(file_path):
+                logger.error(f"원본 파일이 존재하지 않음: {file_path}")
+                return None
+            
+            # 다운로드 폴더 생성
             os.makedirs(download_path, exist_ok=True)
+            
             file_name = os.path.basename(file_path)
             download_file_path = os.path.join(download_path, file_name)
+            
+            # 파일 복사
             shutil.copy2(file_path, download_file_path)
-            return download_file_path
+            
+            # 복사 결과 확인
+            if os.path.exists(download_file_path):
+                file_size = os.path.getsize(download_file_path)
+                logger.info(f"다운로드 폴더 복사 성공: {download_file_path} ({file_size} bytes)")
+                return download_file_path
+            else:
+                logger.error(f"다운로드 폴더 복사 확인 실패: {download_file_path}")
+                return None
+                
         except Exception as e:
             logger.error(f"다운로드 폴더 복사 오류: {str(e)}")
             return None

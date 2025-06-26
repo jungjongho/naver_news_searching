@@ -86,6 +86,42 @@ class DeduplicationService {
       throw error;
     }
   }
+
+  /**
+   * 결과 파일 자동 다운로드
+   */
+  async downloadResultFile(filePath, fileName = null) {
+    try {
+      // 파일명이 전체 경로인 경우 기본명만 추출
+      const actualFileName = fileName || filePath.split('/').pop() || filePath;
+      
+      console.log('다운로드 시도:', { filePath, actualFileName });
+      
+      // 브라우저에서 직접 다운로드 트리거 (새 탭 열리지 않도록 수정)
+      const link = document.createElement('a');
+      link.href = `${API_BASE_URL}/api/download/${encodeURIComponent(actualFileName)}`; // 다운로드 API 사용
+      link.download = actualFileName;
+      // link.target = '_blank'; // 이 줄을 제거하여 새 탭이 열리지 않도록 함
+      
+      // 숨겨진 상태로 DOM에 추가
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      
+      // 클릭 이벤트 트리거
+      link.click();
+      
+      // 약간의 지연 후 DOM에서 제거
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
+      
+      console.log('파일 다운로드 시작:', actualFileName);
+      return true;
+    } catch (error) {
+      console.error('파일 다운로드 오류:', error);
+      return false;
+    }
+  }
 }
 
 export default new DeduplicationService();

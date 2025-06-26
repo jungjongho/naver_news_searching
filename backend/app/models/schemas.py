@@ -206,6 +206,7 @@ class DeduplicationResponse(BaseModel):
     success: bool = Field(..., description="중복 제거 성공 여부")
     message: str = Field(..., description="응답 메시지")
     file_path: Optional[str] = Field(None, description="결과 파일 경로")
+    download_path: Optional[str] = Field(None, description="다운로드 폴더에 저장된 파일 경로")
     stats: Optional[Dict[str, Any]] = Field(None, description="중복 제거 통계 정보")
     session_id: Optional[str] = Field(None, description="세션 ID")
     errors: Optional[Dict[str, str]] = Field(None, description="오류 정보")

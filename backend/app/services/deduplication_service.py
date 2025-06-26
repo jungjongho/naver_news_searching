@@ -125,11 +125,7 @@ class DeduplicationService:
             
             # 완료 알림
             if session_id:
-                await websocket_manager.send_progress_update(
-                    session_id, stats['deduplicated_count'], stats['original_count'],
-                    None, None, f"중복 제거 완료! {stats['removed_count']}개 기사 제거됨",
-                    force_send=True
-                )
+                await websocket_manager.send_deduplication_completion_message(session_id, final_stats)
             
             logger.info(f"GPT 임베딩 중복 제거 완료: {stats['original_count']} → {stats['deduplicated_count']} "
                        f"({processing_time:.2f}분 소요)")
@@ -251,7 +247,7 @@ class DeduplicationService:
         eps = 1 - similarity_threshold
         min_samples = 2  # 최소 2개 기사가 있어야 중복 그룹
         
-        logger.info(f"DBSCAN 클러스터링 시작 (eps={eps:.3f}, min_samples={min_samples})")
+        logger.info(f"DBSCAN 클러스터링 시작 (eps={eps:.3f}, min_samples={min_samples}, similarity_threshold={similarity_threshold})")
         
         # DBSCAN 클러스터링 수행
         clustering = DBSCAN(eps=eps, min_samples=min_samples, metric='cosine')
@@ -262,10 +258,15 @@ class DeduplicationService:
         unique_labels = set(cluster_labels)
         unique_labels.discard(-1)  # 노이즈 제거
         
-        for cluster_id in unique_labels:
+        logger.info(f"클러스터 라벨: {sorted(unique_labels)}, 노이즈(-1) 개수: {list(cluster_labels).count(-1)}")
+        
+        for cluster_id in sorted(unique_labels):  # 순서 보장
             cluster_indices = np.where(cluster_labels == cluster_id)[0]
             
+            logger.info(f"클러스터 {cluster_id} 처리 시작: {len(cluster_indices)}개 기사")
+            
             if len(cluster_indices) < 2:  # 1개 기사는 중복이 아님
+                logger.info(f"클러스터 {cluster_id} 건너뛰기: 기사 수가 {len(cluster_indices)}개로 부족")
                 continue
             
             # 클러스터 내 유사도 계산
@@ -276,6 +277,12 @@ class DeduplicationService:
             centroid = np.mean(cluster_embeddings, axis=0)
             centroid_similarities = cosine_similarity([centroid], cluster_embeddings)[0]
             representative_idx = cluster_indices[np.argmax(centroid_similarities)]
+            
+            logger.info(f"클러스터 {cluster_id}: 대표기사 인덱스 = {representative_idx}, 제목: {str(df.iloc[representative_idx]['title'])[:50]}...")
+            
+            # 클러스터 내 모든 기사 제목 로그
+            for i, idx in enumerate(cluster_indices):
+                logger.debug(f"  - {idx}: {str(df.iloc[idx]['title'])[:50]}...")
             
             # 그룹 정보 생성
             articles = []
@@ -300,7 +307,7 @@ class DeduplicationService:
             # 최대 유사도 계산
             max_similarity = float(np.max(similarity_matrix))
             
-            duplicate_groups.append({
+            group_info = {
                 'group_id': len(duplicate_groups),
                 'representative_title': str(df.iloc[representative_idx]['title']),
                 'representative_index': int(representative_idx),
@@ -309,12 +316,20 @@ class DeduplicationService:
                 'count': len(articles),
                 'max_similarity': max_similarity,
                 'cluster_id': int(cluster_id)
-            })
+            }
+            
+            duplicate_groups.append(group_info)
+            
+            logger.info(f"그룹 {group_info['group_id']} 생성 완료: 대표기사 {representative_idx} '{str(df.iloc[representative_idx]['title'])[:30]}...', {len(articles)}개 기사, 최대유사도: {max_similarity:.3f}")
             
             logger.info(f"중복 그룹 {len(duplicate_groups)} 발견: {len(articles)}개 기사, "
-                       f"최대 유사도: {max_similarity:.3f}")
+                       f"최대 유사도: {max_similarity:.3f}, 대표: '{str(df.iloc[representative_idx]['title'])[:30]}...'")
         
-        logger.info(f"총 {len(duplicate_groups)}개 중복 그룹 탐지됨")
+        logger.info(f"총 {len(duplicate_groups)}개 중복 그룹 탐지됨 (similarity_threshold: {similarity_threshold})")
+        
+        # 각 그룹의 대표 기사 요약 정보 출력
+        for group in duplicate_groups:
+            logger.info(f"  그룹 {group['group_id']}: 대표 '{group['representative_title'][:40]}...' ({group['count']}개 기사)")
         return duplicate_groups
     
     def _create_deduplicated_dataset(
@@ -324,22 +339,68 @@ class DeduplicationService:
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """중복 제거된 데이터셋 생성"""
         indices_to_remove = set()
+        representative_indices = set()
+        group_info_map = {}  # 인덱스별 그룹 정보 매핑
         
         # 각 그룹에서 대표 기사 제외한 나머지 제거
         for group in duplicate_groups:
             representative_idx = group['representative_index']
+            representative_indices.add(representative_idx)
+            
+            logger.info(f"그룹 {group['group_id']} 처리: 대표기사 {representative_idx} ('{str(df.iloc[representative_idx]['title'])[:40]}...'), {len(group['articles'])}개 기사 중 {len(group['articles'])-1}개 제거")
+            
+            # 대표 기사 정보 저장
+            group_info_map[representative_idx] = {
+                'group_id': group['group_id'],
+                'is_representative': True,
+                'removed_duplicates_count': len(group['articles']) - 1,  # 대표 제외한 나머지
+                'max_similarity': group['max_similarity']
+            }
+            
             for article in group['articles']:
                 if article['index'] != representative_idx:
                     indices_to_remove.add(article['index'])
+                    logger.debug(f"  제거 대상: {article['index']} ('{article['title'][:30]}...')")
+                else:
+                    logger.debug(f"  대표 기사 유지: {article['index']} ('{article['title'][:30]}...')")
         
         # 중복 제거된 데이터프레임 생성
         deduplicated_df = df.drop(indices_to_remove).reset_index(drop=True)
         
-        # 메타데이터 추가
-        deduplicated_df['duplicate_group_id'] = -1
-        deduplicated_df['is_representative'] = False
+        logger.info(f"중복 제거 완료: 전체 {len(df)}개 중 {len(indices_to_remove)}개 제거, {len(df) - len(indices_to_remove)}개 남음")
+        logger.info(f"대표 기사 인덱스: {sorted(representative_indices)}")
+        
+        # 메타데이터 추가 (기존 인덱스 기준으로 설정)
+        original_indices = deduplicated_df.index.tolist()
+        
+        # 기본값 설정
+        deduplicated_df['duplicate_group_id'] = -1  # -1: 단독 기사
+        deduplicated_df['is_representative'] = False  # 기본은 단독 기사
         deduplicated_df['removed_duplicates_count'] = 0
         deduplicated_df['embedding_similarity'] = 0.0
+        deduplicated_df['article_type'] = '단독기사'  # 기사 타입 추가
+        
+        # 원본 데이터프레임의 인덱스를 새로운 데이터프레임에 매핑
+        original_to_new_index = {}
+        new_idx = 0
+        for original_idx in range(len(df)):
+            if original_idx not in indices_to_remove:
+                original_to_new_index[original_idx] = new_idx
+                new_idx += 1
+        
+        # 대표 기사들에 대한 정보 업데이트
+        for original_idx, group_info in group_info_map.items():
+            if original_idx in original_to_new_index:
+                new_idx = original_to_new_index[original_idx]
+                logger.info(f"대표기사 업데이트: 원본 {original_idx} -> 새 {new_idx}, 그룹 {group_info['group_id']}")
+                
+                deduplicated_df.loc[new_idx, 'duplicate_group_id'] = group_info['group_id']
+                deduplicated_df.loc[new_idx, 'is_representative'] = True
+                deduplicated_df.loc[new_idx, 'removed_duplicates_count'] = group_info['removed_duplicates_count']
+                deduplicated_df.loc[new_idx, 'embedding_similarity'] = group_info['max_similarity']
+                deduplicated_df.loc[new_idx, 'article_type'] = f'대표기사 (그룹{group_info["group_id"]})'  # 대표 기사 표시
+            else:
+                logger.warning(f"대표기사 {original_idx}가 최종 데이터에서 찾을 수 없음!")
         
         # 통계 정보
         stats = {
@@ -347,6 +408,8 @@ class DeduplicationService:
             'deduplicated_count': len(deduplicated_df),
             'removed_count': len(indices_to_remove),
             'duplicate_groups_count': len(duplicate_groups),
+            'representative_articles_count': len(representative_indices),
+            'single_articles_count': len(deduplicated_df) - len(representative_indices),
             'reduction_percentage': round((len(indices_to_remove) / len(df)) * 100, 1)
         }
         
@@ -359,7 +422,7 @@ class DeduplicationService:
         original_file_path: str,
         stats: Dict[str, Any]
     ) -> str:
-        """결과 저장"""
+        """결과 저장 및 다운로드 폴더 복사"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         base_name = os.path.splitext(os.path.basename(original_file_path))[0]
         
@@ -377,11 +440,19 @@ class DeduplicationService:
             if duplicate_groups:
                 groups_data = []
                 for group in duplicate_groups:
+                    representative_idx = group['representative_index']
+                    logger.info(f"그룹 {group['group_id']} 처리: 대표기사 인덱스 = {representative_idx}")
+                    
                     for i, article in enumerate(group['articles']):
+                        article_idx = article['index']
+                        is_representative = (article_idx == representative_idx)
+                        
+                        logger.debug(f"  기사 {article_idx}: 대표기사여부 = {is_representative} (제목: {article['title'][:50]}...)")
+                        
                         groups_data.append({
                             '그룹ID': group['group_id'],
                             '클러스터ID': group.get('cluster_id', -1),
-                            '대표기사여부': article['index'] == group['representative_index'],
+                            '대표기사여부': is_representative,
                             '제목': article['title'],
                             'URL': article['url'],
                             '날짜': article['date'],
@@ -402,6 +473,8 @@ class DeduplicationService:
                 ['중복 제거 후 기사 수', stats['deduplicated_count']],
                 ['제거된 중복 기사 수', stats['removed_count']],
                 ['중복 그룹 수', stats['duplicate_groups_count']],
+                ['대표 기사 수', stats['representative_articles_count']],
+                ['단독 기사 수', stats['single_articles_count']],
                 ['중복 제거율', f"{stats['reduction_percentage']}%"],
                 ['처리 시간', f"{stats.get('processing_time', 0)}분"]
             ]
@@ -410,6 +483,25 @@ class DeduplicationService:
             stats_df.to_excel(writer, sheet_name='임베딩_통계정보', index=False)
         
         logger.info(f"임베딩 중복 제거 결과 저장: {result_file_path}")
+        
+        # 파일 매니저 캐시 업데이트 및 새로고침
+        file_manager._file_cache[result_filename] = result_file_path
+        file_manager.refresh_files()  # 전체 캐시 새로고침
+        logger.info(f"파일 저장 및 캐시 업데이트 완료: {result_filename}")
+        
+        # 다운로드 폴더로 자동 복사
+        try:
+            if settings.AUTO_COPY_TO_DOWNLOADS:
+                download_file_path = file_manager._copy_to_download_optimized(
+                    result_file_path, settings.USER_DOWNLOAD_PATH
+                )
+                if download_file_path:
+                    logger.info(f"중복 제거 결과 파일이 다운로드 폴더로 복사됨: {download_file_path}")
+                else:
+                    logger.warning("다운로드 폴더 복사 실패")
+        except Exception as e:
+            logger.error(f"다운로드 폴더 복사 중 오류: {str(e)}")
+        
         return result_file_path
     
     async def _send_progress(self, session_id: str, progress: int, total: int, message: str):

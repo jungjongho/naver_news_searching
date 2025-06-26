@@ -112,6 +112,9 @@ app.include_router(websocket_endpoints.router)
 # 결과 파일 정적 호스팅
 app.mount("/results", StaticFiles(directory=settings.RESULTS_PATH), name="results")
 
+# 중복제거 결과 파일 정적 호스팅 추가
+app.mount("/deduplication", StaticFiles(directory=settings.DEDUPLICATION_RESULTS_PATH), name="deduplication")
+
 @app.get("/")
 async def root():
     return {"message": "네이버 뉴스 검색 API에 오신 것을 환영합니다!"}

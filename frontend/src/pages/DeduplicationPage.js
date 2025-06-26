@@ -63,14 +63,36 @@ const DeduplicationPage = () => {
   
   // WebSocket 완료 메시지 처리
   useEffect(() => {
-    const handleDeduplicationComplete = (stats, autoNavigate = false) => {
+    const handleDeduplicationComplete = async (stats, autoNavigate = false) => {
       console.log('🎉 WebSocket을 통해 중복 제거 완료 수신:', stats);
+      
+      // 자동 다운로드 시도 (새 탭 열리는 문제 해결됨)
+      try {
+        // API 응답에서 파일 경로 가져오기
+        if (window.deduplicationApiResponse && window.deduplicationApiResponse.file_path) {
+          const fileName = window.deduplicationApiResponse.file_path.split('/').pop();
+          console.log('📥 자동 다운로드 시도:', fileName);
+          
+          const downloadSuccess = await deduplicationService.downloadResultFile(
+            window.deduplicationApiResponse.file_path,
+            fileName
+          );
+          
+          if (downloadSuccess) {
+            console.log('✅ 자동 다운로드 성공');
+          } else {
+            console.warn('⚠️ 자동 다운로드 실패');
+          }
+        }
+      } catch (error) {
+        console.error('❌ 자동 다운로드 오류:', error);
+      }
       
       setAlert({
         open: true,
         type: 'success',
         title: '중복 제거 완료',
-        message: `중복 제거가 완료되었습니다. 원본 ${stats.original_count}개 → 최종 ${stats.deduplicated_count}개 (${stats.removed_count}개 제거, ${stats.reduction_percentage}% 감소) - "확인" 버튼을 눌러 결과를 확인하세요.`,
+        message: `중복 제거가 완료되었습니다. 원본 ${stats.original_count}개 → 최종 ${stats.deduplicated_count}개 (${stats.removed_count}개 제거, ${stats.reduction_percentage}% 감소) - "확인" 버튼을 눌러 결과를 확인하세요. 파일이 자동으로 다운로드됩니다.`,
       });
       
       // 결과를 전역에 저장
@@ -265,6 +287,9 @@ const DeduplicationPage = () => {
       )
         .then(result => {
           console.log('📊 API 응답 수신:', result);
+          
+          // API 응답을 전역 변수에 저장 (자동 다운로드용)
+          window.deduplicationApiResponse = result;
           
           if (result.success) {
             console.log('✅ API 요청 성공 - WebSocket 완료 메시지 대기 중...');

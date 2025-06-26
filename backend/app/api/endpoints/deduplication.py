@@ -7,6 +7,7 @@
 
 import logging
 import uuid
+import os
 from fastapi import APIRouter, HTTPException
 from app.models.schemas import DeduplicationRequest, DeduplicationResponse
 from app.services.deduplication_service import deduplication_service
@@ -44,12 +45,18 @@ async def remove_duplicates(request: DeduplicationRequest):
             embedding_model=getattr(request, 'embedding_model', 'text-embedding-3-small')
         )
         
+        # 다운로드 경로 생성
+        from app.core.config import settings
+        result_filename = os.path.basename(result_path)
+        download_path = os.path.join(settings.USER_DOWNLOAD_PATH, result_filename) if settings.AUTO_COPY_TO_DOWNLOADS else None
+        
         return DeduplicationResponse(
             success=True,
             message=f"GPT 임베딩 방식으로 {stats['original_count']}개 기사 중 {stats['removed_count']}개 중복 기사를 제거했습니다. "
                    f"최종 {stats['deduplicated_count']}개 기사 (제거율: {stats['reduction_percentage']}%) "
                    f"(소요시간: {stats.get('processing_time', 0)}분)",
             file_path=result_path,
+            download_path=download_path,
             stats=stats,
             session_id=session_id
         )

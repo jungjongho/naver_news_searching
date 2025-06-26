@@ -34,9 +34,10 @@ class FileService:
             os.makedirs(directory, exist_ok=True)
     
     def find_file(self, file_name: str) -> str:
-        """파일 경로 찾기 (우선순위: relevance > crawling > results)"""
+        """파일 경로 찾기 (우선순위: relevance > deduplication > crawling > results)"""
         search_paths = [
             os.path.join(settings.RELEVANCE_RESULTS_PATH, file_name),
+            os.path.join(settings.DEDUPLICATION_RESULTS_PATH, file_name),
             os.path.join(settings.CRAWLING_RESULTS_PATH, file_name),
             os.path.join(settings.RESULTS_PATH, file_name)
         ]
