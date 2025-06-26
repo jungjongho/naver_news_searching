@@ -6,12 +6,17 @@ import datetime
 import os
 import logging
 import pandas as pd
+import urllib3
+from urllib3.exceptions import InsecureRequestWarning
 from urllib.parse import quote, urlparse
 from typing import List, Dict, Any, Optional, Tuple
 
 from app.utils.file_utils import save_to_excel
 from app.utils.deduplication import deduplicate_by_url
 from app.core.config import settings
+
+# SSL 경고 비활성화
+urllib3.disable_warnings(InsecureRequestWarning)
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +174,14 @@ class NaverApiService:
             url = f"https://openapi.naver.com/v1/search/news.json?query={encoded_query}&display={current_display}&start={start}&sort={sort}"
             
             try:
-                res = requests.get(url, headers=self.headers, timeout=15)  # 타임아웃 증가
+                # SSL 검증 비활성화로 요청
+                res = requests.get(
+                    url, 
+                    headers=self.headers, 
+                    timeout=15,
+                    verify=False,  # SSL 검증 비활성화
+                    allow_redirects=True
+                )
                 res.raise_for_status()
                 
                 response_data = res.json()

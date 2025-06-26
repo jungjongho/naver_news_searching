@@ -5,8 +5,9 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (백엔드 디렉토리에서)
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 # 사용자 홈 디렉토리 가져오기
 HOME_DIR = Path.home()

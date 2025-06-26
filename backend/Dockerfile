@@ -3,14 +3,25 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 시스템 의존성 설치
+# 시스템 의존성 설치 (gcc 및 빌드 도구 포함)
 RUN apt-get update && apt-get install -y \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates \
+    gcc \
+    python3-dev \
+    build-essential \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && update-ca-certificates
+
+# 시간대 설정 (SSL 인증서 검증에 중요)
+ENV TZ=Asia/Seoul
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 # Python 의존성 설치
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사
 COPY . .
