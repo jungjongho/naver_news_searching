@@ -25,11 +25,29 @@ def save_to_excel(data: List[Dict[str, Any]], file_path: str,
             'title': '제목',
             'link': '링크',
             'pubDate': '발행일시',
-            'source': '출처',
+            'source_name': '출처',  # source_name을 출처로 매핑
             'description': '내용',
             'keyword': '키워드'
         }
         df = df.rename(columns={k: v for k, v in column_mapping.items() if k in df.columns})
+        
+        # 원하는 컬럼 순서로 재정렬: 키워드, source, 제목, 내용이 가장 앞에 오도록
+        desired_order = ['키워드', 'source', '제목', '내용']
+        
+        # 기존 컬럼 중에서 원하는 순서에 포함되지 않은 컬럼들
+        remaining_columns = [col for col in df.columns if col not in desired_order]
+        
+        # 실제 존재하는 컬럼만 선택하여 순서 구성
+        final_order = []
+        for col in desired_order:
+            if col in df.columns:
+                final_order.append(col)
+        
+        # 나머지 컬럼들 추가
+        final_order.extend(remaining_columns)
+        
+        # 컬럼 순서 재정렬
+        df = df[final_order]
         
         # Excel 파일로 저장
         df.to_excel(file_path, index=False, engine='openpyxl')

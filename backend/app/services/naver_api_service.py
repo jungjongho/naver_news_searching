@@ -76,8 +76,26 @@ class NaverApiService:
             logger.error(f"domain_to_source.csv 파일 로드 중 오류 발생: {str(e)}")
             return {}
     
+    def _extract_main_domain_from_url(self, url: str) -> str:
+        """URL에서 메인 도메인 추출 (프로토콜 포함)"""
+        try:
+            if not url:
+                return ""
+            
+            parsed_url = urlparse(url)
+            
+            # 프로토콜과 도메인 결합
+            if parsed_url.scheme and parsed_url.netloc:
+                return f"{parsed_url.scheme}://{parsed_url.netloc}"
+            else:
+                return ""
+                
+        except Exception as e:
+            logger.error(f"URL에서 메인 도메인 추출 실패: {url}, 오류: {str(e)}")
+            return ""
+    
     def _extract_domain_from_url(self, url: str) -> str:
-        """URL에서 도메인 추출"""
+        """URL에서 도메인 추출 (신문사명 매핑용)"""
         try:
             parsed_url = urlparse(url)
             domain = parsed_url.netloc
@@ -115,16 +133,18 @@ class NaverApiService:
             description = item['description'].replace("<b>", "").replace("</b>", "")
             original_link = item.get('originallink', '')
             source_name = self._get_source_from_url(original_link)
+            main_domain = self._extract_main_domain_from_url(original_link)  # 메인 도메인 추출
             
             return {
-                "news_id": news_id,
+                "keyword": keyword,
+                "source": main_domain,  # 메인 도메인
                 "title": title,
+                "description": description,
+                "news_id": news_id,
                 "link": item['link'],
                 "pubDate": pub_date.strftime("%Y-%m-%d %H:%M:%S"),
-                "description": description,
-                "source": source_name,
-                "originallink": original_link,
-                "keyword": keyword
+                "source_name": source_name,  # 기존 신문사명
+                "originallink": original_link  # originallink를 마지막으로 이동
             }
             
         except Exception as e:
