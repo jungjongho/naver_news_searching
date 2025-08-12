@@ -11,6 +11,11 @@ import gc
 import asyncio
 from contextlib import asynccontextmanager
 
+# 기존 import에 추가
+from app.db.database import engine
+from app.db import models
+
+
 from app.api.endpoints import crawler, relevance, download, prompts, deduplication
 from app.websocket import endpoints as websocket_endpoints
 from app.core.config import settings
@@ -60,7 +65,17 @@ async def lifespan(app: FastAPI):
     """애플리케이션 시작/종료 시 실행되는 코드"""
     # 시작 시
     logger.info("🚀 애플리케이션 시작")
+
+
+    # 데이터베이스 테이블 생성 (추가)
+    models.Base.metadata.create_all(bind=engine)
+    logger.info("📊 데이터베이스 테이블 생성 완료")
+    
+
+
     log_memory_usage()
+
+    
     
     # 백그라운드 작업 시작
     cleanup_task = asyncio.create_task(periodic_cleanup())
