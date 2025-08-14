@@ -276,3 +276,36 @@ class EnhancedDeduplicationResponse(DeduplicationResponse):
     processing_details: Optional[Dict[str, Any]] = Field(None, description="처리 상세 정보")
     cost_info: Optional[Dict[str, Any]] = Field(None, description="비용 정보 (임베딩 사용시)")
     performance_metrics: Optional[Dict[str, Any]] = Field(None, description="성능 지표")
+
+
+# 사용자 관련 스키마
+class UserBase(BaseModel):
+    email: str = Field(..., description="사용자 이메일")
+    name: str = Field(..., description="사용자 이름")
+    
+class UserCreate(UserBase):
+    password: str = Field(..., min_length=6, description="비밀번호 (최소 6자)")
+    
+class UserResponse(UserBase):
+    id: int
+    is_active: bool
+    subscription_type: str
+    crawl_count: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+    
+class UserLogin(BaseModel):
+    email: str
+    password: str
+    
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    
+class TokenData(BaseModel):
+    email: Optional[str] = None
+
+
+    

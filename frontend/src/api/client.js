@@ -19,6 +19,13 @@ const apiClient = axios.create({
 // 요청 인터셉터 - 재시도 로직 추가
 apiClient.interceptors.request.use(
   (config) => {
+    // 🔐 JWT 토큰 자동 추가
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+
+
     // 긴 요청에 대한 특별 설정
     if (config.url && config.url.includes('/relevance/analyze')) {
       config.timeout = 0; // 관련성 분석은 타임아웃 없음
@@ -42,6 +49,21 @@ apiClient.interceptors.response.use(
   },
   async (error) => {
     const config = error.config;
+
+    // 🔐 토큰 만료 처리 (401 Unauthorized)
+    if (error.response?.status === 401) {
+      console.warn('🔐 토큰이 만료되었습니다. 로그인 페이지로 이동합니다.');
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+    
+    // 🚫 권한 없음 처리 (403 Forbidden)
+    if (error.response?.status === 403) {
+      console.error('🚫 접근 권한이 없습니다.');
+      // 권한 없음 알림 표시 (선택사항)
+      return Promise.reject(error);
+    }
     
     // 재시도 가능한 오류들
     const retryableErrors = [
@@ -57,8 +79,14 @@ apiClient.interceptors.response.use(
       error.code === code || error.message?.includes(code)
     );
     
-    // 재시도 로직 (최대 3번) - 문법 오류 수정
-    if (isRetryableError && config && !config._retry && (config._retryCount || 0) < 3) {
+     // 재시도 로직 (최대 3번) - 인증 오류는 재시도하지 않음
+    if (isRetryableError && 
+        config && 
+        !config._retry && 
+        (config._retryCount || 0) < 3 &&
+        error.response?.status !== 401 && 
+        error.response?.status !== 403) {
+      
       config._retryCount = (config._retryCount || 0) + 1;
       config._retry = true;
       

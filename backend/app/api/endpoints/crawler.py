@@ -11,6 +11,9 @@ from app.services.naver_api_service import NaverApiService
 from app.core.file_manager import file_manager
 from app.core.config import settings
 
+from app.dependencies.auth import get_current_active_user
+from app.db.models import User
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
@@ -26,10 +29,11 @@ def get_naver_api_service() -> NaverApiService:
 async def crawl_news(
     request: CrawlerRequest,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_active_user), 
     naver_api_service: NaverApiService = Depends(get_naver_api_service)
 ):
     """키워드 목록에 대한 뉴스 크롤링"""
-    logger.info(f"뉴스 검색 시작: {request.keywords}")
+    logger.info(f"사용자 {current_user.email}이 뉴스 검색 시작: {request.keywords}")
     
     try:
         # API 키 검증

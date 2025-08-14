@@ -7,11 +7,18 @@
 
 import logging
 import uuid
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response, Depends  # Depends 추가
 from app.models.schemas import RelevanceRequest, RelevanceResponse
 from app.services.news_analysis_service import news_analysis_service
 from app.services.prompt_service import PromptService
 from app.common.exceptions import NewsSearchException
+
+# 인증 관련 import 추가
+from app.dependencies.auth import get_current_active_user
+from app.db.models import User
+from sqlalchemy.orm import Session
+from app.db.database import get_db
+
 
 # 전역 중지 상태 관리
 stop_flags = {}
@@ -28,9 +35,12 @@ prompt_service = PromptService()
 
 
 @router.post("/analyze", response_model=RelevanceResponse)
-async def analyze_relevance_optimized(request: RelevanceRequest):
+async def analyze_relevance_optimized(request: RelevanceRequest,
+                                      current_user: User = Depends(get_current_active_user),  # 인증 추가
+    db: Session = Depends(get_db)  # DB 세션 추가
+    ):
     """뉴스 기사 관련성 분석 (최적화됨)"""
-    logger.info(f"최적화된 관련성 분석 시작: {request.file_path}, 모델: {request.model}")
+    logger.info(f"사용자 {current_user.email}이 최적화된 관련성 분석 시작: {request.file_path}, 모델: {request.model}")
     
     # 세션 ID 설정
     session_id = request.session_id or str(uuid.uuid4())
@@ -94,7 +104,9 @@ async def analyze_relevance_optimized(request: RelevanceRequest):
 
 
 @router.post("/stop/{session_id}")
-async def stop_analysis(session_id: str):
+async def stop_analysis(session_id: str,
+                        current_user: User = Depends(get_current_active_user)  # 인증 추가,
+                        ):
     """관련성 분석 중지"""
     logger.info(f"관련성 분석 중지 요청: {session_id}")
     
@@ -116,7 +128,9 @@ async def stop_analysis(session_id: str):
 
 
 @router.get("/status/{session_id}")
-async def get_analysis_status(session_id: str):
+async def get_analysis_status(session_id: str,
+                              current_user: User = Depends(get_current_active_user)  # 인증 추가
+                              ):
     """분석 상태 확인"""
     is_running = session_id in stop_flags
     is_stopped = stop_flags.get(session_id, False) if is_running else False
@@ -125,6 +139,7 @@ async def get_analysis_status(session_id: str):
         "session_id": session_id,
         "is_running": is_running,
         "is_stopped": is_stopped,
-        "status": "stopped" if is_stopped else ("running" if is_running else "not_found")
+        "status": "stopped" if is_stopped else ("running" if is_running else "not_found"),
+        "user": current_user.email  # 사용자 정보 추가
     }
 

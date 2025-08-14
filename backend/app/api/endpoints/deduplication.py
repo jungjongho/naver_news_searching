@@ -8,10 +8,20 @@
 import logging
 import uuid
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response, Depends  # Depends 추가
 from app.models.schemas import DeduplicationRequest, DeduplicationResponse
 from app.services.deduplication_service import deduplication_service
 from app.common.exceptions import NewsSearchException
+
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from app.dependencies.auth import get_current_active_user
+from app.db.models import User
+
+# 인증 관련 import 추가
+from app.dependencies.auth import get_current_active_user
+from app.db.models import User
+from sqlalchemy.orm import Session
+from app.db.database import get_db
 
 # 전역 중지 상태 관리
 stop_flags = {}
@@ -26,9 +36,13 @@ router = APIRouter(
 
 
 @router.post("/remove", response_model=DeduplicationResponse)
-async def remove_duplicates(request: DeduplicationRequest):
+async def remove_duplicates(request: DeduplicationRequest,
+                            current_user: User = Depends(get_current_active_user),  # 인증 추가
+                            db: Session = Depends(get_db)  # DB 세션 추가
+                            ):
     """뉴스 기사 중복 제거 (GPT 임베딩 방식)"""
-    logger.info(f"GPT 임베딩 중복 제거 시작: {request.file_path}, 임계값: {request.similarity_threshold}")
+
+    logger.info(f"사용자 {current_user.email}이 GPT 임베딩 중복 제거 시작: {request.file_path}, 임계값: {request.similarity_threshold}")
     
     session_id = request.session_id or str(uuid.uuid4())
     
@@ -81,7 +95,9 @@ async def remove_duplicates(request: DeduplicationRequest):
 
 
 @router.post("/stop/{session_id}")
-async def stop_deduplication(session_id: str):
+async def stop_deduplication(session_id: str,
+                             current_user: User = Depends(get_current_active_user)  # 인증 추가
+                             ):
     """중복 제거 중지"""
     logger.info(f"중복 제거 중지 요청: {session_id}")
     
@@ -117,7 +133,7 @@ async def get_deduplication_status(session_id: str):
 
 
 @router.get("/info")
-async def get_deduplication_info():
+async def get_deduplication_info(current_user: User = Depends(get_current_active_user) ):
     """GPT 임베딩 중복 제거 방식 정보"""
     return {
         "method": {

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Depends  # Depends 추가
 from typing import List, Dict, Any, Optional
 import logging
 import os
@@ -9,6 +9,12 @@ import mimetypes
 from urllib.parse import quote
 
 from app.core.config import settings
+
+# 인증 관련 import 추가
+from app.dependencies.auth import get_current_active_user
+from app.db.models import User
+from sqlalchemy.orm import Session
+from app.db.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +25,16 @@ router = APIRouter(
 )
 
 @router.get("/{file_name}")
-async def download_file(file_name: str):
+async def download_file(file_name: str,
+                        current_user: User = Depends(get_current_active_user),  # 인증 추가
+    db: Session = Depends(get_db)  # DB 세션 추가
+    ):
     """
     파일 다운로드
     """
+    logger.info(f"사용자 {current_user.email}이 파일 다운로드 요청: {file_name}")
+
+    
     # 파일 경로 찾기
     file_path = None
     search_paths = [

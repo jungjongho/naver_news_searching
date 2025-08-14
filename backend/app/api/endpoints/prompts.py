@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends 
 from typing import List, Optional
 import logging
 
@@ -10,6 +10,12 @@ from app.models.schemas import (
     PromptListResponse, PromptResponse
 )
 from app.services.prompt_service import PromptService
+
+# 인증 관련 import 추가
+from app.dependencies.auth import get_current_active_user
+from app.db.models import User
+from sqlalchemy.orm import Session
+from app.db.database import get_db
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +29,13 @@ prompt_service = PromptService()
 
 
 @router.get("/", response_model=PromptListResponse)
-async def get_all_prompts():
+async def get_all_prompts(current_user: User = Depends(get_current_active_user)  # 인증 추가
+                          ):
     """
     모든 통합 프롬프트 템플릿 조회
     """
     try:
+        logger.info(f"사용자 {current_user.email}이 프롬프트 목록 조회")
         prompts = prompt_service.get_all_prompts()
         return PromptListResponse(
             prompts=prompts,
@@ -39,7 +47,9 @@ async def get_all_prompts():
 
 
 @router.get("/active", response_model=PromptResponse)
-async def get_active_prompt():
+async def get_active_prompt(
+    current_user: User = Depends(get_current_active_user)  # 인증 추가
+):
     """
     현재 활성화된 통합 프롬프트 템플릿 조회
     """
@@ -63,7 +73,9 @@ async def get_active_prompt():
 
 
 @router.get("/{prompt_id}", response_model=PromptResponse)
-async def get_prompt_by_id(prompt_id: str):
+async def get_prompt_by_id(prompt_id: str,
+                           current_user: User = Depends(get_current_active_user)  # 인증 추가
+                           ):
     """
     ID로 특정 통합 프롬프트 템플릿 조회
     """
@@ -87,11 +99,15 @@ async def get_prompt_by_id(prompt_id: str):
 
 
 @router.post("/", response_model=PromptResponse)
-async def create_prompt(request: PromptCreateRequest):
+async def create_prompt(request: PromptCreateRequest,
+                        current_user: User = Depends(get_current_active_user),  # 인증 추가
+    db: Session = Depends(get_db)  # DB 세션 추가
+    ):
     """
     새 통합 프롬프트 템플릿 생성
     """
     try:
+        logger.info(f"사용자 {current_user.email}이 새 프롬프트 생성: {request.name}")
         # 필수 필드 검증
         if not request.name or not request.name.strip():
             return PromptResponse(
@@ -131,7 +147,9 @@ async def create_prompt(request: PromptCreateRequest):
 
 
 @router.put("/{prompt_id}", response_model=PromptResponse)
-async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
+async def update_prompt(prompt_id: str, request: PromptUpdateRequest,
+                        current_user: User = Depends(get_current_active_user)  # 인증 추가
+                        ):
     """
     통합 프롬프트 템플릿 수정
     """
@@ -189,7 +207,9 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
 
 
 @router.delete("/{prompt_id}", response_model=PromptResponse)
-async def delete_prompt(prompt_id: str):
+async def delete_prompt(prompt_id: str,
+                        current_user: User = Depends(get_current_active_user)  # 인증 추가
+                        ):
     """
     프롬프트 템플릿 삭제
     """
@@ -212,7 +232,9 @@ async def delete_prompt(prompt_id: str):
 
 
 @router.post("/activate/{prompt_id}", response_model=PromptResponse)
-async def activate_prompt(prompt_id: str):
+async def activate_prompt(prompt_id: str,
+                          current_user: User = Depends(get_current_active_user)  # 인증 추가,
+                          ):
     """
     특정 프롬프트를 활성화 (다른 프롬프트들은 비활성화)
     """
@@ -238,7 +260,9 @@ async def activate_prompt(prompt_id: str):
 
 
 @router.post("/duplicate/{prompt_id}", response_model=PromptResponse)
-async def duplicate_prompt(prompt_id: str, new_name: Optional[str] = Query(None)):
+async def duplicate_prompt(prompt_id: str, new_name: Optional[str] = Query(None),
+                           current_user: User = Depends(get_current_active_user)  # 인증 추가
+                           ):
     """
     통합 프롬프트 템플릿 복제
     """
@@ -264,7 +288,9 @@ async def duplicate_prompt(prompt_id: str, new_name: Optional[str] = Query(None)
 @router.get("/preview/{prompt_id}")
 async def preview_prompt(prompt_id: str, 
                         sample_title: str = Query("샘플 제목"), 
-                        sample_content: str = Query("샘플 내용")):
+                        sample_content: str = Query("샘플 내용"),
+                        current_user: User = Depends(get_current_active_user)  # 인증 추가,
+                        ):
     """
     통합 프롬프트 미리보기 - 샘플 데이터로 실제 프롬프트가 어떻게 생성되는지 확인
     """
@@ -296,7 +322,9 @@ async def preview_prompt(prompt_id: str,
 @router.get("/compile/{prompt_id}")
 async def compile_prompt(prompt_id: str, 
                         title: str = Query(""), 
-                        content: str = Query("")):
+                        content: str = Query(""),
+                        current_user: User = Depends(get_current_active_user)  # 인증 추가,
+                        ):
     """
     통합 프롬프트를 컴파일하여 실제 사용할 프롬프트 생성
     """

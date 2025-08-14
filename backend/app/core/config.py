@@ -48,6 +48,14 @@ class Settings:
     DEFAULT_NEWS_COUNT: int = 100
     DEFAULT_NEWS_SORT: str = "date"  # date(최신순) 또는 sim(정확도순)
     DEFAULT_NEWS_DAYS: int = 30  # 최근 30일 뉴스
+
+    # 인증 관련 설정 (추가)
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "fallback-secret-key-change-this")
+    ALGORITHM: str = os.getenv("ALGORITHM", "HS256") 
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
+    
+    # 데이터베이스 설정 (추가)
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./app.db")
     
     def __init__(self):
         """필요한 디렉토리들을 생성"""

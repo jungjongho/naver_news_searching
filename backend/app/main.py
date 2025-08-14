@@ -25,6 +25,10 @@ from app.common.exception_handlers import (
     general_exception_handler
 )
 
+from app.api.endpoints import auth, users
+
+
+
 # 로깅 설정 - 메모리 사용량 모니터링 포함
 logging.basicConfig(
     level=logging.INFO,  # DEBUG에서 INFO로 변경하여 로그 스팸 방지
@@ -123,6 +127,8 @@ app.include_router(relevance.router)
 app.include_router(download.router)
 app.include_router(prompts.router)
 app.include_router(websocket_endpoints.router)
+app.include_router(auth.router)
+app.include_router(users.router)
 
 # 결과 파일 정적 호스팅
 app.mount("/results", StaticFiles(directory=settings.RESULTS_PATH), name="results")

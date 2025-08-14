@@ -17,6 +17,7 @@ import {
   Container,
   useMediaQuery,
   useTheme,
+  Button
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import HomeIcon from '@mui/icons-material/Home';
@@ -26,6 +27,7 @@ import TableViewIcon from '@mui/icons-material/TableView';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import EditIcon from '@mui/icons-material/Edit';
 import Footer from './Footer';
+import { useAuth } from '../../contexts/AuthContext';
 
 const drawerWidth = 240;
 
@@ -46,6 +48,10 @@ const MainLayout = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // 인증 관련 추가
+  const { isAuthenticated, user, logout } = useAuth();
+
+
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
@@ -56,6 +62,13 @@ const MainLayout = () => {
       setMobileOpen(false);
     }
   };
+
+  // 로그아웃 핸들러 추가
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
+  };
+  
 
   // 현재 페이지 제목 가져오기
   const getPageTitle = () => {
@@ -120,6 +133,24 @@ const MainLayout = () => {
           <Typography variant="h6" noWrap component="div">
             {getPageTitle()}
           </Typography>
+
+          {/* 🔐 인증 UI 추가 - 오른쪽 끝에 배치 */}
+          <Box sx={{ ml: 'auto' }}>
+            {isAuthenticated ? (
+              <Box display="flex" alignItems="center" gap={2}>
+                <Typography variant="body2" sx={{ display: { xs: 'none', sm: 'block' } }}>
+                  {user?.name}님 환영합니다
+                </Typography>
+                <Button color="inherit" onClick={handleLogout}>
+                  로그아웃
+                </Button>
+              </Box>
+            ) : (
+              <Button color="inherit" onClick={() => navigate('/login')}>
+                로그인
+              </Button>
+            )}
+          </Box>
         </Toolbar>
       </AppBar>
 
