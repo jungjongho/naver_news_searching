@@ -49,7 +49,32 @@ const RegisterPage = () => {
       });
       navigate('/login');
     } catch (err) {
-      setError('회원가입에 실패했습니다.');
+      // 서버에서 전송한 구체적인 에러 메시지 추출
+  let errorMessage = '회원가입에 실패했습니다.';
+  
+  if (err.response && err.response.data) {
+    if (err.response.data.detail) {
+      // FastAPI에서 detail 키로 에러 메시지 전송
+      errorMessage = err.response.data.detail;
+    } else if (typeof err.response.data === 'string') {
+      errorMessage = err.response.data;
+    } else if (err.response.data.message) {
+      errorMessage = err.response.data.message;
+    }
+  } else if (err.message) {
+    errorMessage = err.message;
+  }
+  
+  // 에러 메시지를 한국어로 번역
+  if (errorMessage === 'Email already registered') {
+    errorMessage = '이미 등록된 이메일입니다.';
+  } else if (errorMessage.includes('password')) {
+    errorMessage = '비밀번호는 최소 6자 이상이어야 합니다.';
+  } else if (errorMessage.includes('email')) {
+    errorMessage = '유효한 이메일 주소를 입력해주세요.';
+  }
+  
+  setError(errorMessage);
     } finally {
       setLoading(false);
     }

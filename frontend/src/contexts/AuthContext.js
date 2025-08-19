@@ -40,7 +40,12 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (userData) => {
+    try {
     return await authService.register(userData);
+  } catch (error) {
+    // 에러를 그대로 throw하여 RegisterPage에서 처리할 수 있도록 함
+    throw error;
+  }
   };
 
   const logout = () => {
