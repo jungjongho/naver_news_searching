@@ -283,9 +283,6 @@ class UserBase(BaseModel):
     email: str = Field(..., description="사용자 이메일")
     name: str = Field(..., description="사용자 이름")
     
-class UserCreate(UserBase):
-    password: str = Field(..., min_length=6, description="비밀번호 (최소 6자)")
-    
 class UserResponse(UserBase):
     id: int
     is_active: bool
@@ -296,9 +293,6 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
     
-class UserLogin(BaseModel):
-    email: str
-    password: str
     
 class Token(BaseModel):
     access_token: str
@@ -307,5 +301,112 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: Optional[str] = None
 
+class FileUploadResponse(BaseModel):
+    """
+    파일 업로드 응답 스키마
+    """
+    success: bool = Field(..., description="업로드 성공 여부")
+    message: str = Field(..., description="응답 메시지")
+    file_path: Optional[str] = Field(None, description="업로드된 파일 경로")
+    original_filename: Optional[str] = Field(None, description="원본 파일명")
+    safe_filename: Optional[str] = Field(None, description="저장된 파일명")
+    validation_result: Optional[Dict[str, Any]] = Field(None, description="파일 검증 결과")
 
+class FileValidationResult(BaseModel):
+    """
+    파일 검증 결과 스키마
+    """
+    is_valid: bool = Field(..., description="검증 성공 여부")
+    row_count: int = Field(..., description="데이터 행 수")
+    columns: List[str] = Field(..., description="파일의 모든 열 목록")
+    missing_columns: List[str] = Field(..., description="누락된 필수 열 목록")
+    required_columns: List[str] = Field(..., description="필수 열 목록")
+    available_optional_columns: Optional[List[str]] = Field(None, description="사용 가능한 선택적 열 목록")
+    sample_data: Optional[List[Dict[str, Any]]] = Field(None, description="샘플 데이터 (3행)")
+    error: Optional[str] = Field(None, description="오류 메시지")
+
+# 기존 요청 스키마들을 수정하여 업로드된 파일 경로를 받을 수 있도록 변경
+class DeduplicationRequest(BaseModel):
+    """
+    GPT 임베딩 기반 중복 제거 요청 스키마 (수정됨)
+    """
+    file_path: Optional[str] = Field(None, description="서버의 파일 경로 (기존 방식)")
+    uploaded_file_path: Optional[str] = Field(None, description="업로드된 파일 경로 (새로운 방식)")
+    api_key: str = Field(..., description="OpenAI API 키")
+    similarity_threshold: Optional[float] = Field(0.85, description="임베딩 유사도 임계값 (0.85-0.95 권장)")
+    batch_size: Optional[int] = Field(50, description="임베딩 생성 배치 크기")
+    session_id: Optional[str] = Field(None, description="세션 ID (진행률 추적용)")
+    embedding_model: Optional[str] = Field("text-embedding-3-small", description="사용할 임베딩 모델")
+
+class RelevanceRequest(BaseModel):
+    """
+    관련성 평가 요청 스키마 (수정됨)
+    """
+    file_path: Optional[str] = Field(None, description="서버의 파일 경로 (기존 방식)")
+    uploaded_file_path: Optional[str] = Field(None, description="업로드된 파일 경로 (새로운 방식)")
+    api_key: str = Field(..., description="OpenAI 또는 Claude API 키")
+    model: Optional[str] = Field("gpt-4.1-nano", description="사용할 LLM 모델")
+    prompt_id: Optional[str] = Field(None, description="사용할 프롬프트 ID")
+    session_id: Optional[str] = Field(None, description="세션 ID (진행률 추적용)")
+    batch_size: Optional[int] = Field(10, description="배치 처리 크기")
+    use_batch_processing: Optional[bool] = Field(True, description="배치 처리 사용 여부")
+
+
+# 🔥 소셜 로그인 관련 스키마들
+class UserBase(BaseModel):
+    """기본 사용자 정보"""
+    email: str = Field(..., description="사용자 이메일")
+    name: str = Field(..., description="사용자 이름")
+
+class UserResponse(BaseModel):
+    """사용자 응답 스키마 (소셜 로그인 전용)"""
+    id: int
+    email: str
+    name: str
+    provider: str  # kakao 또는 naver
+    provider_id: str
+    profile_image: Optional[str] = None
+    is_active: bool
+    subscription_type: str
+    crawl_count: int
+    created_at: datetime
     
+    class Config:
+        from_attributes = True
+
+class SocialAuthRequest(BaseModel):
+    """소셜 로그인 요청 스키마"""
+    provider: str = Field(..., description="로그인 제공자 (kakao, naver)")
+    code: str = Field(..., description="OAuth 인증 코드")
+    state: Optional[str] = Field(None, description="CSRF 방지용 state")
+
+class SocialAuthResponse(BaseModel):
+    """소셜 로그인 응답 스키마"""
+    success: bool = Field(..., description="로그인 성공 여부")
+    access_token: Optional[str] = Field(None, description="JWT 액세스 토큰")
+    token_type: str = Field("bearer", description="토큰 타입")
+    user: Optional[UserResponse] = Field(None, description="사용자 정보")
+    is_new_user: bool = Field(False, description="신규 사용자 여부")
+    message: str = Field(..., description="응답 메시지")
+
+class SocialUserInfo(BaseModel):
+    """소셜 로그인 사용자 정보"""
+    provider: str
+    provider_id: str
+    email: str
+    name: str
+    profile_image: Optional[str] = None
+
+class AuthUrlResponse(BaseModel):
+    """소셜 로그인 URL 응답 스키마"""
+    auth_url: str = Field(..., description="소셜 로그인 인증 URL")
+    state: Optional[str] = Field(None, description="CSRF 방지용 state")
+
+class Token(BaseModel):
+    """JWT 토큰 응답"""
+    access_token: str
+    token_type: str = "bearer"
+
+class TokenData(BaseModel):
+    """토큰 데이터"""
+    email: Optional[str] = None

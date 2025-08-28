@@ -38,6 +38,7 @@ import ProgressDialog from '../components/common/ProgressDialog';
 import deduplicationService from '../api/deduplicationService';
 import crawlerService from '../api/crawlerService';
 import { storage } from '../utils/helpers';
+import FileUpload from '../components/common/FileUpload';
 
 const DeduplicationPage = () => {
   const location = useLocation();
@@ -55,7 +56,24 @@ const DeduplicationPage = () => {
   const [alert, setAlert] = useState({ open: false, type: 'info', message: '', title: '' });
   const [advancedSettings, setAdvancedSettings] = useState(false);
   const [apiKeyMasked, setApiKeyMasked] = useState(true);
+  const [uploadedFilePath, setUploadedFilePath] = useState('');
+  const [useUploadedFile, setUseUploadedFile] = useState(false);
   
+
+  // 파일 업로드 성공 핸들러
+  const handleUploadSuccess = (result) => {
+    setUploadedFilePath(result.file_path);
+    setUseUploadedFile(true);
+    
+    setAlert({
+      open: true,
+      type: 'success',
+      title: '파일 업로드 완료',
+      message: `${result.original_filename} 파일이 성공적으로 업로드되었습니다. (${result.validation_result.row_count}개 행)`,
+    });
+  };
+  
+
   // 컴포넌트 마운트 시 초기 데이터 로드
   useEffect(() => {
     loadFiles();

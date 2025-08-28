@@ -18,3 +18,7 @@ alembic==1.13.1
 bcrypt==4.1.2
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+
+# 🔥 소셜 로그인 관련 패키지
+authlib==1.2.1          # OAuth 클라이언트 라이브러리
+httpx==0.24.1           # 비동기 HTTP 클라이언트

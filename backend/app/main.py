@@ -16,7 +16,6 @@ from app.db.database import engine
 from app.db import models
 
 
-from app.api.endpoints import crawler, relevance, download, prompts, deduplication
 from app.websocket import endpoints as websocket_endpoints
 from app.core.config import settings
 from app.common.exceptions import NewsSearchException
@@ -25,7 +24,16 @@ from app.common.exception_handlers import (
     general_exception_handler
 )
 
-from app.api.endpoints import auth, users
+from app.api.endpoints import (
+    crawler, 
+    relevance, 
+    download, 
+    prompts, 
+    deduplication, 
+    upload, 
+    users,
+    social_auth  # 🔥 소셜 로그인만 추가
+)
 
 
 
@@ -120,15 +128,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# API 라우터 설정
+# 🔥 라우터 등록 (기존 auth 제거, social_auth 추가)
+app.include_router(social_auth.router)  # 🔥 소셜 로그인 라우터
+app.include_router(users.router)
 app.include_router(crawler.router)
-app.include_router(deduplication.router)
 app.include_router(relevance.router)
 app.include_router(download.router)
 app.include_router(prompts.router)
-app.include_router(websocket_endpoints.router)
-app.include_router(auth.router)
-app.include_router(users.router)
+app.include_router(deduplication.router)
+app.include_router(upload.router)
 
 # 결과 파일 정적 호스팅
 app.mount("/results", StaticFiles(directory=settings.RESULTS_PATH), name="results")
@@ -138,24 +146,15 @@ app.mount("/deduplication", StaticFiles(directory=settings.DEDUPLICATION_RESULTS
 
 @app.get("/")
 async def root():
-    return {"message": "네이버 뉴스 검색 API에 오신 것을 환영합니다!"}
-
+    return {
+        "message": "네이버 뉴스 스크랩 서비스 API", 
+        "version": "2.0.0",
+        "auth_type": "소셜 로그인 전용 (카카오, 네이버)",
+        "docs": "/docs"
+    }
 @app.get("/health")
 async def health_check():
-    """헬스 체크 - 메모리 정보 포함"""
-    try:
-        import psutil
-        process = psutil.Process()
-        memory_info = process.memory_info()
-        memory_mb = memory_info.rss / 1024 / 1024
-        
-        return {
-            "status": "healthy",
-            "memory_usage_mb": round(memory_mb, 1),
-            "memory_percent": round(process.memory_percent(), 1)
-        }
-    except ImportError:
-        return {"status": "healthy"}
+    return {"status": "healthy", "auth": "social_only"}
 
 @app.get("/api-key-status")
 async def api_key_status():

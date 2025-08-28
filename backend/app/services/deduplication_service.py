@@ -46,6 +46,7 @@ class DeduplicationService:
     async def deduplicate_news(
         self,
         file_path: str,
+        uploaded_file_path: str ,
         api_key: str,
         similarity_threshold: float = 0.85,
         batch_size: int = 50,
@@ -53,6 +54,27 @@ class DeduplicationService:
         stop_flag_dict: Optional[Dict[str, bool]] = None,
         embedding_model: str = "text-embedding-3-small"
     ) -> Tuple[str, Dict[str, Any]]:
+        
+
+        """뉴스 중복 제거 (업로드 파일 지원)"""
+    
+        # 파일 경로 결정 (업로드 파일이 있으면 우선 사용)
+        actual_file_path = uploaded_file_path if uploaded_file_path else file_path
+        
+        if not actual_file_path:
+            raise NewsSearchException(
+                message="파일 경로 또는 업로드된 파일이 필요합니다.",
+                error_code="NO_FILE_PROVIDED"
+            )
+        
+        # 파일 존재 확인
+        if not os.path.exists(actual_file_path):
+            raise NewsSearchException(
+                message=f"파일을 찾을 수 없습니다: {actual_file_path}",
+                error_code="FILE_NOT_FOUND"
+            )
+        
+        
         """
         GPT 임베딩을 사용한 고성능 뉴스 중복 제거
         
